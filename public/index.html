@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Quint - Diseñador de Iluminación Teatral</title>
+  <meta name="description" content="Herramienta interactiva para planificación, mezcla de color aditiva y previsualización de plantas de luces teatrales y eventos.">
+  
+  <!-- Google Fonts: Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  
+  <!-- Stylesheet -->
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <!-- App Container -->
+  <div id="app">
+    
+    <!-- Top Header -->
+    <header class="app-header">
+      <div class="logo-area">
+        <svg class="logo-icon" viewBox="0 0 24 24" width="24" height="24">
+          <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/>
+          <path d="M12 2v20M2 12h20M12 12l5.5-5.5M12 12l-5.5 5.5M12 12l5.5 5.5M12 12l-5.5-5.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+        <span class="logo-text">Quint</span>
+        <span class="logo-badge">Pro</span>
+      </div>
+      
+      <!-- Project Name Input -->
+      <div class="project-title-container">
+        <label for="project-name-input" class="sr-only">Nombre del proyecto</label>
+        <input type="text" id="project-name-input" value="Mi Planta de Luces" placeholder="Nombre del proyecto..." title="Editar nombre del proyecto">
+        <span class="save-status" id="save-status">Guardado</span>
+      </div>
+      
+      <!-- Action Toolbar -->
+      <div class="toolbar">
+        <button type="button" class="btn btn-outline" id="open-storage-btn" title="Guardar o Cargar Proyectos">
+          <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+          Proyecto
+        </button>
+        <button type="button" class="btn btn-primary" id="open-export-btn" title="Exportar plano en PDF o PNG">
+          <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Exportar
+        </button>
+      </div>
+    </header>
+
+    <!-- Main Workspace -->
+    <main class="workspace">
+      
+      <!-- Canvas and simulation view -->
+      <section class="simulation-pane" aria-label="Lienzo de previsualización">
+        <div class="view-controls">
+          <div class="toggle-group" id="viewSwitch" role="group" aria-label="Cambiar vista de simulación">
+            <button type="button" class="view-btn active" data-view="plan">
+              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
+              Planta (Técnica)
+            </button>
+            <button type="button" class="view-btn" data-view="elev">
+              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M3 21h18M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V7L12 3z"/></svg>
+              Perfil (Público)
+            </button>
+            <button type="button" class="view-btn" data-view="persp">
+              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polygon points="12 2 2 22 22 22"/><polyline points="12 2 12 22"/></svg>
+              Perspectiva (3D)
+            </button>
+          </div>
+        </div>
+        
+        <div class="canvas-container">
+          <canvas id="stage" width="700" height="460"></canvas>
+          <div class="canvas-overlay-tip" id="floor-label">Arrastrá focos, personas u objetos para reubicarlos</div>
+        </div>
+      </section>
+
+      <!-- Sidebar Control Panel -->
+      <aside class="control-panel" aria-label="Panel de configuración y herramientas">
+        
+        <!-- Sidebar Navigation Tabs -->
+        <nav class="sidebar-tabs" aria-label="Herramientas de configuración">
+          <button type="button" class="tab-btn active" data-tab="escena" id="tab-escena-btn">Escenario</button>
+          <button type="button" class="tab-btn" data-tab="focos" id="tab-focos-btn">Focos</button>
+          <button type="button" class="tab-btn" data-tab="objetos" id="tab-objetos-btn">Objetos</button>
+        </nav>
+
+        <!-- Tab Panel: Escenario -->
+        <div class="tab-content active" id="tab-escena">
+          <div class="panel-section">
+            <h2 class="section-title">Dimensiones reales</h2>
+            <div class="input-grid">
+              <div class="input-field">
+                <label for="stageW">Ancho Escenario (m)</label>
+                <input type="number" id="stageW" value="8" min="2" max="20" step="0.1" aria-describedby="stageW-tip">
+              </div>
+              <div class="input-field">
+                <label for="stageD">Profundidad (m)</label>
+                <input type="number" id="stageD" value="6" min="2" max="20" step="0.1" aria-describedby="stageD-tip">
+              </div>
+              <div class="input-field">
+                <label for="stageH">Alto Techo / Varas (m)</label>
+                <input type="number" id="stageH" value="7" min="3" max="12" step="0.1" aria-describedby="stageH-tip">
+              </div>
+            </div>
+            <p class="field-tip">El lienzo ajusta la escala automáticamente en base a estas medidas reales en metros.</p>
+          </div>
+          
+          <div class="panel-section">
+            <h2 class="section-title">Plantillas rápidas</h2>
+            <div class="button-grid">
+              <button type="button" class="btn btn-outline btn-sm" id="btn-preset-small">Sala Chica (6x4m)</button>
+              <button type="button" class="btn btn-outline btn-sm" id="btn-preset-med">Teatro Estándar (10x8m)</button>
+              <button type="button" class="btn btn-outline btn-sm" id="btn-preset-large">Gran Escenario (15x10m)</button>
+            </div>
+          </div>
+          
+          <div class="panel-section-footer">
+            <button type="button" class="btn btn-danger btn-block" id="btn-reset-stage">Reiniciar Escena</button>
+          </div>
+        </div>
+
+        <!-- Tab Panel: Focos -->
+        <div class="tab-content" id="tab-focos">
+          <div class="panel-section-header">
+            <button type="button" class="btn btn-primary btn-block" id="btn-open-catalog" title="Agregar una luz desde el catálogo de modelos reales">
+              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2.5" fill="none"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              Agregar Foco del Catálogo
+            </button>
+          </div>
+          <div class="panel-scroll-area">
+            <div class="fixture-list-container" id="fixtureList">
+              <!-- Cards dynamically rendered here -->
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab Panel: Objetos -->
+        <div class="tab-content" id="tab-objetos">
+          <div class="panel-section-header">
+            <div class="button-split">
+              <button type="button" class="btn btn-outline" id="addPersonBtn">
+                <span>👤 Persona</span>
+              </button>
+              <button type="button" class="btn btn-outline" id="addPropBtn">
+                <span>📦 Objeto</span>
+              </button>
+            </div>
+          </div>
+          <div class="panel-scroll-area">
+            <div class="object-list-container" id="objectList">
+              <!-- Objects lists dynamically rendered here -->
+            </div>
+          </div>
+        </div>
+
+      </aside>
+    </main>
+  </div>
+
+  <!-- ================= DIALOGS (MODALS) ================= -->
+
+  <!-- 1. Catálogo de Focos Modal -->
+  <dialog id="catalog-dialog" class="custom-modal large-modal">
+    <header class="modal-header">
+      <h2>Catálogo de Luminarias Reales</h2>
+      <button type="button" class="modal-close-btn" id="close-catalog-btn" aria-label="Cerrar modal">&times;</button>
+    </header>
+    <div class="modal-body">
+      <p class="modal-description">Selecciona un modelo del catálogo de fábrica. Incluye proyectores LED y equipos convencionales con filtros de Gel.</p>
+      
+      <div class="catalog-grid" id="catalog-items-grid">
+        <!-- Rendered dynamically from catalog.js -->
+      </div>
+    </div>
+  </dialog>
+
+  <!-- 2. Almacenamiento y Gestión de Proyectos Modal -->
+  <dialog id="storage-dialog" class="custom-modal">
+    <header class="modal-header">
+      <h2>Gestión del Proyecto</h2>
+      <button type="button" class="modal-close-btn" id="close-storage-btn" aria-label="Cerrar modal">&times;</button>
+    </header>
+    <div class="modal-body">
+      
+      <!-- Export / Import Local Files -->
+      <div class="storage-section">
+        <h3>Archivos de Proyecto (.json)</h3>
+        <p class="section-desc">Guarda el proyecto actual en tu computadora como archivo o importa un plano anterior.</p>
+        <div class="button-grid">
+          <button type="button" class="btn btn-outline" id="json-export-btn">
+            Descargar Archivo JSON
+          </button>
+          
+          <label class="btn btn-outline file-input-label" id="json-import-label">
+            Subir Archivo JSON
+            <input type="file" id="json-import-input" accept=".json">
+          </label>
+        </div>
+      </div>
+      
+      <!-- Auto-save Info -->
+      <div class="storage-section border-top">
+        <h3>Autoguardado Local</h3>
+        <p class="section-desc">Esta aplicación guarda automáticamente tu trabajo de forma local en tu navegador.</p>
+        <div class="autosave-info-card">
+          <div class="info-row">
+            <span class="info-label">Estado:</span>
+            <span class="info-value text-success" id="local-save-status">Activo (Últimos cambios guardados)</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">Luminarias:</span>
+            <span class="info-value" id="local-save-fixtures">0 focos</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">Objetos:</span>
+            <span class="info-value" id="local-save-objects">0 objetos</span>
+          </div>
+        </div>
+      </div>
+      
+    </div>
+  </dialog>
+
+  <!-- 3. Exportación (PDF y PNG) Modal -->
+  <dialog id="export-dialog" class="custom-modal">
+    <header class="modal-header">
+      <h2>Exportar Plano Técnico</h2>
+      <button type="button" class="modal-close-btn" id="close-export-btn" aria-label="Cerrar modal">&times;</button>
+    </header>
+    <div class="modal-body">
+      <p class="modal-description">Elige el formato de salida para presentar tu diseño al equipo técnico o director de la obra.</p>
+      
+      <div class="export-options-list">
+        <!-- Option 1: PDF Ficha Técnica -->
+        <button type="button" class="export-option-card" id="export-pdf-action-btn">
+          <div class="export-icon pdf-icon">
+            <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+          </div>
+          <div class="export-meta">
+            <span class="export-title">Reporte PDF de Planta + Parcheo</span>
+            <span class="export-desc">Ideal para imprimir. Incluye la captura visual del plano actual y una planilla detallada con todos los focos, modelos, alturas, posiciones y filtros de color en metros reales.</span>
+          </div>
+        </button>
+
+        <!-- Option 2: PNG Planta -->
+        <button type="button" class="export-option-card" id="export-png-action-btn">
+          <div class="export-icon png-icon">
+            <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+          </div>
+          <div class="export-meta">
+            <span class="export-title">Descargar Imagen PNG</span>
+            <span class="export-desc">Descarga una captura de alta definición del lienzo actual (Planta o Perfil) en formato de imagen transparente, ideal para insertar en presentaciones o mandar por WhatsApp.</span>
+          </div>
+        </button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- 4. Diálogo de Confirmación Genérico -->
+  <dialog id="confirm-dialog" class="custom-modal confirm-modal">
+    <header class="modal-header">
+      <h2 id="confirm-title">¿Estás seguro?</h2>
+    </header>
+    <div class="modal-body">
+      <p id="confirm-message">Esta acción borrará todo el diseño actual de forma permanente. No podrás deshacerlo.</p>
+      <div class="button-split modal-footer">
+        <button type="button" class="btn btn-outline" id="confirm-cancel-btn">Cancelar</button>
+        <button type="button" class="btn btn-danger" id="confirm-ok-btn">Confirmar</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Load jsPDF from CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+  <!-- Load Application Scripts -->
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
