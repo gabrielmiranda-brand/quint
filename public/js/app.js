@@ -459,10 +459,13 @@ function composePlanLight() {
     grad.addColorStop(0.5, `rgba(${r_rgb},${g_rgb},${b_rgb},${alpha * 0.3})`);
     grad.addColorStop(1, `rgba(${r_rgb},${g_rgb},${b_rgb},0)`);
     
+    pctx.save();
+    pctx.filter = 'blur(4px)';
     pctx.fillStyle = grad;
     pctx.beginPath();
     pctx.arc(pTarget.x, pTarget.y, radPx, 0, Math.PI * 2);
     pctx.fill();
+    pctx.restore();
     
     // Dibujar línea indicadora de dirección de haz (foco -> target)
     pctx.strokeStyle = `rgba(${r_rgb},${g_rgb},${b_rgb},${alpha * 0.35})`;
@@ -610,6 +613,8 @@ function drawElevBeam(f) {
   grad.addColorStop(0.6, `rgba(${r},${g},${b},${alpha * 0.25})`);
   grad.addColorStop(1, `rgba(${r},${g},${b},0)`);
   
+  ctx.save();
+  ctx.filter = 'blur(4px)';
   ctx.fillStyle = grad;
   ctx.beginPath();
   ctx.moveTo(apex.x, apex.y);
@@ -617,6 +622,7 @@ function drawElevBeam(f) {
   ctx.lineTo(p2.x, p2.y);
   ctx.closePath();
   ctx.fill();
+  ctx.restore();
 }
 
 function drawElevFixtureBody(f) {
@@ -2412,35 +2418,51 @@ function drawPerspBeam(f) {
     points.push(screenPt);
   }
   
-  // Dibujar volumen del haz (cono volumétrico translúcido)
-  for (let i = 0; i < steps; i++) {
-    ctx.beginPath();
-    ctx.moveTo(apex.x, apex.y);
-    ctx.lineTo(points[i].x, points[i].y);
-    ctx.lineTo(points[i+1].x, points[i+1].y);
-    ctx.closePath();
-    
-    const midX = (points[i].x + points[i+1].x) / 2;
-    const midY = (points[i].y + points[i+1].y) / 2;
-    
-    const grad = ctx.createLinearGradient(apex.x, apex.y, midX, midY);
-    grad.addColorStop(0, `rgba(${r},${g},${b},${alpha * 0.22})`);
-    grad.addColorStop(0.7, `rgba(${r},${g},${b},${alpha * 0.08})`);
-    grad.addColorStop(1, `rgba(${r},${g},${b},0)`);
-    
-    ctx.fillStyle = grad;
-    ctx.fill();
-  }
+  const centerPt = project3D(target.x, target.y, target.z);
   
-  // Dibujar elipse de proyección en el suelo/superficie
+  // 1. Dibujar volumen del haz (cono único volumétrico suave con degradado radial y desenfoque)
+  ctx.save();
+  ctx.filter = 'blur(6px)';
+  
+  const dist = Math.hypot(centerPt.x - apex.x, centerPt.y - apex.y);
+  const grad = ctx.createRadialGradient(apex.x, apex.y, 0, apex.x, apex.y, dist);
+  grad.addColorStop(0, `rgba(${r},${g},${b},${alpha * 0.28})`);
+  grad.addColorStop(0.5, `rgba(${r},${g},${b},${alpha * 0.14})`);
+  grad.addColorStop(0.8, `rgba(${r},${g},${b},${alpha * 0.04})`);
+  grad.addColorStop(1, 'rgba(0,0,0,0)');
+  
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.moveTo(apex.x, apex.y);
+  ctx.lineTo(points[0].x, points[0].y);
+  for (let i = 1; i <= steps; i++) {
+    ctx.lineTo(points[i].x, points[i].y);
+  }
+  ctx.lineTo(apex.x, apex.y);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+  
+  // 2. Dibujar elipse de proyección en el suelo/superficie con degradado radial y desenfoque
+  ctx.save();
+  ctx.filter = 'blur(4px)';
+  
+  // Calcular radio del spot en pixeles de forma segura
+  const spotRad = Math.max(9, Math.hypot(points[0].x - centerPt.x, points[0].y - centerPt.y));
+  const spotGrad = ctx.createRadialGradient(centerPt.x, centerPt.y, 0, centerPt.x, centerPt.y, spotRad);
+  spotGrad.addColorStop(0, `rgba(${r},${g},${b},${alpha * 0.65})`);
+  spotGrad.addColorStop(0.4, `rgba(${r},${g},${b},${alpha * 0.35})`);
+  spotGrad.addColorStop(1, 'rgba(0,0,0,0)');
+  
+  ctx.fillStyle = spotGrad;
   ctx.beginPath();
   ctx.moveTo(points[0].x, points[0].y);
   for (let i = 1; i <= steps; i++) {
     ctx.lineTo(points[i].x, points[i].y);
   }
   ctx.closePath();
-  ctx.fillStyle = `rgba(${r},${g},${b},${alpha * 0.12})`;
   ctx.fill();
+  ctx.restore();
 }
 
 function drawPerspFixtureBody(f) {
