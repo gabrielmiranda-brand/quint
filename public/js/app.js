@@ -1,7 +1,7 @@
 // Quint - Motor de Simulación Teatral y Controlador Principal
-import { CATALOG, GELS, getFixtureDefaults } from './catalog.js';
-import { saveProject, loadProject, clearProject, exportProjectJSON, importProjectJSON } from './storage.js';
-import { exportCanvasAsPNG, exportProjectPDF } from './export.js';
+import { CATALOG, GELS, getFixtureDefaults } from './catalog.js?v=1.2.2';
+import { saveProject, loadProject, clearProject, exportProjectJSON, importProjectJSON } from './storage.js?v=1.2.2';
+import { exportCanvasAsPNG, exportProjectPDF } from './export.js?v=1.2.2';
 
 // Elementos del DOM
 const canvas = document.getElementById('stage');
@@ -58,7 +58,7 @@ function initApp() {
     fixtures = savedState.fixtures;
     objects = savedState.objects;
     projectName = savedState.projectName || 'Mi Planta de Luces';
-    varas = savedState.varas || getDefaultVaras();
+    varas = Array.isArray(savedState.varas) ? savedState.varas : getDefaultVaras();
     cues = Array.isArray(savedState.cues) ? savedState.cues : [];
     
     // Asegurar que el idCounter no colisione
