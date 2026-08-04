@@ -1349,6 +1349,33 @@ function setupEventListeners() {
     draw();
     triggerAutosave();
   });
+
+  // Agregar Escena (Cue)
+  document.getElementById('btn-add-cue').addEventListener('click', () => {
+    const cueName = prompt('Ingrese el nombre de la escena:', `Escena ${cues.length + 1}`);
+    if (cueName === null) return;
+    const name = cueName.trim() || `Escena ${cues.length + 1}`;
+    
+    const intensities = {};
+    const colors = {};
+    fixtures.forEach(f => {
+      intensities[f.id] = f.intensity;
+      colors[f.id] = f.color;
+    });
+    
+    const fadeTime = parseFloat(document.getElementById('cue-fade-time').value) || 1.5;
+    
+    cues.push({
+      id: Date.now(),
+      name,
+      fadeTime,
+      intensities,
+      colors
+    });
+    
+    renderCueList();
+    triggerAutosave();
+  });
 }
 
 function updateStageInputs() {
