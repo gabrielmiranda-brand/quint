@@ -59,7 +59,7 @@ function initApp() {
     objects = savedState.objects;
     projectName = savedState.projectName || 'Mi Planta de Luces';
     varas = savedState.varas || getDefaultVaras();
-    cues = savedState.cues || [];
+    cues = Array.isArray(savedState.cues) ? savedState.cues : [];
     
     // Asegurar que el idCounter no colisione
     const maxFixtureId = fixtures.reduce((max, f) => f.id > max ? f.id : max, 0);
@@ -1409,7 +1409,7 @@ function triggerAutosave() {
   if (saveTimeout) clearTimeout(saveTimeout);
   
   saveTimeout = setTimeout(() => {
-    const success = saveProject(stageMeters, fixtures, objects, varas, projectName);
+    const success = saveProject(stageMeters, fixtures, objects, varas, cues, projectName);
     updateSaveStatus(success ? 'saved' : 'error');
   }, 1000);
 }
