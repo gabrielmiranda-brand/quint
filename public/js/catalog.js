@@ -141,3 +141,39 @@ export function getFixtureDefaults(modelId) {
     intensity: 80
   };
 }
+
+export const OBJECT_CATALOG = [
+  { id: 'persona-actor', name: 'Actor / Actriz', icon: '👤', category: 'Sujetos', description: 'Silueta de persona para posicionamiento de actores en el escenario.' },
+  { id: 'persona-musico', name: 'Músico (Guitarrista)', icon: '🎸', category: 'Sujetos', description: 'Silueta de músico con guitarra.' },
+  { id: 'persona-cantante', name: 'Cantante', icon: '🎤', category: 'Sujetos', description: 'Silueta de cantante con soporte de micrófono.' },
+  { id: 'furniture-chair', name: 'Silla', icon: '🪑', category: 'Mobiliario', description: 'Silla estándar para diseño de escenografías.' },
+  { id: 'furniture-table', name: 'Mesa', icon: '🪵', category: 'Mobiliario', description: 'Mesa de madera.' },
+  { id: 'furniture-sofa', name: 'Sillón / Sofá', icon: '🛋️', category: 'Mobiliario', description: 'Sillón o sofá de dos cuerpos.' },
+  { id: 'instrument-drums', name: 'Batería', icon: '🥁', category: 'Instrumentos', description: 'Batería completa (bombo y platillos).' },
+  { id: 'instrument-piano', name: 'Teclado / Piano', icon: '🎹', category: 'Instrumentos', description: 'Teclado o sintetizador con soporte.' },
+  { id: 'scenery-lectern', name: 'Atril de Discurso', icon: '🎙️', category: 'Escenografía', description: 'Atril o podio para discursos y conferencias.' },
+  { id: 'scenery-riser', name: 'Tarima (Riser)', icon: '🪜', category: 'Escenografía', description: 'Tarima escalonada o riser de nivelación.' },
+  { id: 'scenery-column', name: 'Columna', icon: '🏛️', category: 'Escenografía', description: 'Columna clásica para decorados griegos o romanos.' },
+  { id: 'scenery-tree', name: 'Árbol / Planta', icon: '🌳', category: 'Escenografía', description: 'Silueta de árbol o arbusto escenográfico.' }
+];
+
+export const OBJECT_TYPES = {
+  'persona-actor': { icon: '👤', name: 'Actor / Actriz' },
+  'persona-musico': { icon: '🎸', name: 'Músico' },
+  'persona-cantante': { icon: '🎤', name: 'Cantante' },
+  'furniture-chair': { icon: '🪑', name: 'Silla' },
+  'furniture-table': { icon: '🪵', name: 'Mesa' },
+  'furniture-sofa': { icon: '🛋️', name: 'Sillón / Sofá' },
+  'instrument-drums': { icon: '🥁', name: 'Batería' },
+  'instrument-piano': { icon: '🎹', name: 'Teclado / Piano' },
+  'scenery-lectern': { icon: '🎙️', name: 'Atril' },
+  'scenery-riser': { icon: '🪜', name: 'Tarima' },
+  'scenery-column': { icon: '🏛️', name: 'Columna' },
+  'scenery-tree': { icon: '🌳', name: 'Árbol' },
+  'persona': { icon: '👤', name: 'Persona' },
+  'objeto': { icon: '📦', name: 'Objeto' }
+};
+
+export function getObjectInfo(type) {
+  return OBJECT_TYPES[type] || { icon: '📦', name: 'Objeto' };
+}

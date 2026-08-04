@@ -1,5 +1,5 @@
 // Quint - Motor de Simulación Teatral y Controlador Principal
-import { CATALOG, GELS, getFixtureDefaults } from './catalog.js';
+import { CATALOG, GELS, getFixtureDefaults, OBJECT_CATALOG, getObjectInfo } from './catalog.js';
 import { saveProject, loadProject, clearProject, exportProjectJSON, importProjectJSON } from './storage.js';
 import { exportCanvasAsPNG, exportProjectPDF } from './export.js';
 
@@ -79,11 +79,29 @@ function initApp() {
   document.getElementById('stageH').value = stageMeters.h;
   
   updateSaveStatus('saved');
+  clampAllVarasAndFixtures();
   renderVarasPanel();
   renderFixturePanel();
   renderObjectPanel();
   renderCueList();
   draw();
+}
+
+function clampAllVarasAndFixtures() {
+  if (!Array.isArray(varas)) return;
+  varas.forEach(v => {
+    if (v.isFrontal) {
+      v.sym = Math.max(stageMeters.d, Math.min(stageMeters.d + 4.0, v.sym));
+    } else {
+      v.sym = Math.max(0.1, Math.min(stageMeters.d - 0.1, v.sym));
+    }
+    // Sincronizar todos los focos montados en esta vara
+    fixtures.forEach(f => {
+      if (f.mountType === 'vara' && f.varaId === v.id) {
+        f.sym = v.sym;
+      }
+    });
+  });
 }
 
 // Escenarios predeterminados
@@ -286,7 +304,9 @@ function getFixtureTarget3D(f) {
   const dz = isUpward ? Math.cos(tiltRad) : -Math.cos(tiltRad);
   
   // Plano target (suelo Z=0 o techo Z=stageMeters.h)
-  const targetZ = isUpward ? stageMeters.h : 0;
+  // Si dz es positivo, el haz apunta hacia arriba (proyecta en el techo)
+  // Si dz es negativo, el haz apunta hacia abajo (proyecta en el suelo)
+  const targetZ = (dz >= 0) ? stageMeters.h : 0;
   const distZ = Math.abs(f.height - targetZ);
   
   if (Math.abs(dz) < 0.001) {
@@ -316,7 +336,8 @@ function beamTriangle(f) {
   const centerX = e.x + (stageMeters.w / 2) * e.scaleX;
   const targetScreenX = centerX + (target3D.x - stageMeters.w / 2) * e.scaleX * s;
   
-  const targetScreenY = (f.mountType === 'piso') 
+  // Si el target está en el techo (Z > 0), posicionar el haz arriba en alzado
+  const targetScreenY = (target3D.z > 0) 
     ? targetFloorY - stageMeters.h * e.scaleY * s
     : targetFloorY;
     
@@ -719,24 +740,11 @@ function drawElevObject(o) {
   // Color del sujeto = Color base + iluminación frontal recibida
   ctx.fillStyle = `rgb(${Math.min(255, baseR + front.r)}, ${Math.min(255, baseG + front.g)}, ${Math.min(255, baseB + front.b)})`;
   
-  if (o.type === 'persona') {
-    drawPersonSilhouette(ctx, x, floorY, scale);
-  } else {
-    drawPropBox(ctx, x, floorY, scale);
-  }
+  drawCustomObject(ctx, x, floorY, scale, o.type, false);
   
   ctx.restore();
   
-  // Borde sutil
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
-  ctx.lineWidth = 1;
-  if (o.type === 'persona') {
-    ctx.beginPath();
-    ctx.ellipse(x, floorY - 38 * scale, 6 * scale, 6 * scale, 0, 0, Math.PI * 2);
-    ctx.stroke();
-  } else {
-    ctx.strokeRect(x - 14 * scale, floorY - 24 * scale, 28 * scale, 24 * scale);
-  }
+  drawCustomObject(ctx, x, floorY, scale, o.type, true);
   
   if (!onstage) {
     ctx.fillStyle = 'rgba(255, 92, 92, 0.7)';
@@ -803,24 +811,16 @@ function drawFigureTinted(c, x, y, type, light, onstage) {
   c.save();
   
   c.fillStyle = `rgb(${baseR},${baseG},${baseB})`;
-  if (type === 'persona') drawPersonSilhouette(c, x, y);
-  else drawPropBox(c, x, y);
+  drawCustomObject(c, x, y, 1.0, type, false);
   
   c.globalCompositeOperation = 'source-atop';
   const lum = (light.r + light.g + light.b) / (255 * 3);
   c.fillStyle = `rgba(${light.r},${light.g},${light.b},${Math.min(0.95, lum * 1.6 + 0.1)})`;
-  if (type === 'persona') drawPersonSilhouette(c, x, y);
-  else drawPropBox(c, x, y);
+  drawCustomObject(c, x, y, 1.0, type, false);
   
   c.restore();
   
-  c.strokeStyle = 'rgba(255, 255, 255, 0.25)';
-  c.lineWidth = 1;
-  if (type === 'persona') {
-    c.beginPath(); c.ellipse(x, y - 38, 6, 6, 0, 0, Math.PI * 2); c.stroke();
-  } else {
-    c.strokeRect(x - 14, y - 24, 28, 24);
-  }
+  drawCustomObject(c, x, y, 1.0, type, true);
   
   if (!onstage) {
     c.fillStyle = 'rgba(255, 92, 92, 0.7)';
@@ -854,6 +854,207 @@ function drawPropBox(c, x, y, scale = 1.0) {
   const w = 28 * scale;
   const h = 24 * scale;
   c.fillRect(x - w / 2, y - h, w, h);
+}
+
+function drawCustomObject(c, x, y, scale, type, strokeOnly = false) {
+  if (strokeOnly) {
+    c.strokeStyle = 'rgba(255, 255, 255, 0.25)';
+    c.lineWidth = 1;
+  }
+  
+  const isPersonaType = type === 'persona' || type === 'persona-actor' || type === 'persona-musico' || type === 'persona-cantante';
+  
+  if (type === 'persona' || type === 'persona-actor') {
+    if (!strokeOnly) {
+      drawPersonSilhouette(c, x, y, scale);
+    } else {
+      c.beginPath();
+      c.ellipse(x, y - 38 * scale, 6 * scale, 6 * scale, 0, 0, Math.PI * 2);
+      c.stroke();
+      const shoulderW = 9 * scale;
+      const shoulderYOffset = 30 * scale;
+      c.beginPath();
+      c.moveTo(x - shoulderW, y);
+      c.quadraticCurveTo(x - shoulderW - (2 * scale), y - shoulderYOffset, x, y - shoulderYOffset);
+      c.quadraticCurveTo(x + shoulderW + (2 * scale), y - shoulderYOffset, x + shoulderW, y);
+      c.stroke();
+    }
+  } else if (type === 'persona-musico') {
+    if (!strokeOnly) {
+      drawPersonSilhouette(c, x, y, scale);
+    } else {
+      c.beginPath();
+      c.ellipse(x, y - 38 * scale, 6 * scale, 6 * scale, 0, 0, Math.PI * 2);
+      c.stroke();
+      const shoulderW = 9 * scale;
+      const shoulderYOffset = 30 * scale;
+      c.beginPath();
+      c.moveTo(x - shoulderW, y);
+      c.quadraticCurveTo(x - shoulderW - (2 * scale), y - shoulderYOffset, x, y - shoulderYOffset);
+      c.quadraticCurveTo(x + shoulderW + (2 * scale), y - shoulderYOffset, x + shoulderW, y);
+      c.stroke();
+    }
+    // Guitarra diagonal
+    c.beginPath();
+    c.moveTo(x - 8 * scale, y - 24 * scale);
+    c.lineTo(x + 10 * scale, y - 14 * scale);
+    c.lineWidth = 3.5 * scale;
+    c.strokeStyle = strokeOnly ? 'rgba(255,255,255,0.45)' : '#8b5a2b';
+    c.stroke();
+    
+    c.beginPath();
+    c.moveTo(x + 8 * scale, y - 15 * scale);
+    c.lineTo(x - 14 * scale, y - 27 * scale);
+    c.lineWidth = 1.5 * scale;
+    c.strokeStyle = strokeOnly ? 'rgba(255,255,255,0.55)' : '#000';
+    c.stroke();
+  } else if (type === 'persona-cantante') {
+    if (!strokeOnly) {
+      drawPersonSilhouette(c, x, y, scale);
+    } else {
+      c.beginPath();
+      c.ellipse(x, y - 38 * scale, 6 * scale, 6 * scale, 0, 0, Math.PI * 2);
+      c.stroke();
+      const shoulderW = 9 * scale;
+      const shoulderYOffset = 30 * scale;
+      c.beginPath();
+      c.moveTo(x - shoulderW, y);
+      c.quadraticCurveTo(x - shoulderW - (2 * scale), y - shoulderYOffset, x, y - shoulderYOffset);
+      c.quadraticCurveTo(x + shoulderW + (2 * scale), y - shoulderYOffset, x + shoulderW, y);
+      c.stroke();
+    }
+    // Pedestal de micrófono
+    c.beginPath();
+    c.moveTo(x - 4 * scale, y);
+    c.lineTo(x - 4 * scale, y - 30 * scale);
+    c.moveTo(x - 4 * scale, y - 30 * scale);
+    c.lineTo(x + 2 * scale, y - 36 * scale);
+    c.lineWidth = 1.5 * scale;
+    c.strokeStyle = strokeOnly ? 'rgba(255,255,255,0.5)' : '#ccc';
+    c.stroke();
+  } else if (type === 'furniture-chair') {
+    c.beginPath();
+    c.moveTo(x - 8 * scale, y - 28 * scale);
+    c.lineTo(x - 8 * scale, y - 14 * scale);
+    c.lineTo(x + 8 * scale, y - 14 * scale);
+    c.moveTo(x - 8 * scale, y - 14 * scale); c.lineTo(x - 8 * scale, y);
+    c.moveTo(x + 8 * scale, y - 14 * scale); c.lineTo(x + 8 * scale, y);
+    c.lineWidth = 2 * scale;
+    c.strokeStyle = strokeOnly ? 'rgba(255,255,255,0.35)' : '#966f33';
+    c.stroke();
+    if (!strokeOnly) {
+      c.fillStyle = '#6e4f1f';
+      c.fillRect(x - 7 * scale, y - 13 * scale, 14 * scale, 2 * scale);
+    }
+  } else if (type === 'furniture-table') {
+    if (!strokeOnly) {
+      c.fillRect(x - 20 * scale, y - 18 * scale, 40 * scale, 4 * scale);
+    } else {
+      c.strokeRect(x - 20 * scale, y - 18 * scale, 40 * scale, 4 * scale);
+      c.beginPath();
+      c.moveTo(x - 16 * scale, y - 14 * scale); c.lineTo(x - 16 * scale, y);
+      c.moveTo(x + 16 * scale, y - 14 * scale); c.lineTo(x + 16 * scale, y);
+      c.lineWidth = 2 * scale;
+      c.stroke();
+    }
+  } else if (type === 'furniture-sofa') {
+    if (!strokeOnly) {
+      c.beginPath();
+      c.roundRect ? c.roundRect(x - 24 * scale, y - 18 * scale, 48 * scale, 18 * scale, 4 * scale) : c.rect(x - 24 * scale, y - 18 * scale, 48 * scale, 18 * scale);
+      c.roundRect ? c.roundRect(x - 24 * scale, y - 26 * scale, 48 * scale, 8 * scale, 3 * scale) : c.rect(x - 24 * scale, y - 26 * scale, 48 * scale, 8 * scale);
+      c.fill();
+    } else {
+      c.beginPath();
+      c.roundRect ? c.roundRect(x - 24 * scale, y - 18 * scale, 48 * scale, 18 * scale, 4 * scale) : c.rect(x - 24 * scale, y - 18 * scale, 48 * scale, 18 * scale);
+      c.roundRect ? c.roundRect(x - 24 * scale, y - 26 * scale, 48 * scale, 8 * scale, 3 * scale) : c.rect(x - 24 * scale, y - 26 * scale, 48 * scale, 8 * scale);
+      c.stroke();
+    }
+  } else if (type === 'instrument-drums') {
+    if (!strokeOnly) {
+      c.beginPath();
+      c.arc(x, y - 14 * scale, 12 * scale, 0, Math.PI * 2);
+      c.fill();
+    } else {
+      c.beginPath();
+      c.arc(x, y - 14 * scale, 12 * scale, 0, Math.PI * 2);
+      c.stroke();
+      c.beginPath();
+      c.moveTo(x - 16 * scale, y); c.lineTo(x - 16 * scale, y - 24 * scale);
+      c.moveTo(x + 16 * scale, y); c.lineTo(x + 16 * scale, y - 28 * scale);
+      c.stroke();
+      c.beginPath();
+      c.ellipse(x - 16 * scale, y - 24 * scale, 8 * scale, 2 * scale, 0, 0, Math.PI * 2);
+      c.ellipse(x + 16 * scale, y - 28 * scale, 9 * scale, 2.5 * scale, 0, 0, Math.PI * 2);
+      c.stroke();
+    }
+  } else if (type === 'instrument-piano') {
+    if (!strokeOnly) {
+      c.fillRect(x - 22 * scale, y - 22 * scale, 44 * scale, 8 * scale);
+    } else {
+      c.strokeRect(x - 22 * scale, y - 22 * scale, 44 * scale, 8 * scale);
+      c.strokeRect(x - 20 * scale, y - 18 * scale, 40 * scale, 4 * scale);
+      c.beginPath();
+      c.moveTo(x - 18 * scale, y); c.lineTo(x + 18 * scale, y - 14 * scale);
+      c.moveTo(x + 18 * scale, y); c.lineTo(x - 18 * scale, y - 14 * scale);
+      c.lineWidth = 1.5 * scale;
+      c.stroke();
+    }
+  } else if (type === 'scenery-lectern') {
+    c.beginPath();
+    c.moveTo(x - 4 * scale, y); c.lineTo(x - 2 * scale, y - 26 * scale);
+    c.lineTo(x + 6 * scale, y - 28 * scale);
+    c.moveTo(x - 8 * scale, y - 28 * scale);
+    c.lineTo(x + 8 * scale, y - 31 * scale);
+    c.lineWidth = 2 * scale;
+    c.strokeStyle = strokeOnly ? 'rgba(255,255,255,0.45)' : '#cca43b';
+    c.stroke();
+  } else if (type === 'scenery-riser') {
+    if (!strokeOnly) {
+      c.fillRect(x - 25 * scale, y - 12 * scale, 50 * scale, 12 * scale);
+      c.fillRect(x - 18 * scale, y - 20 * scale, 36 * scale, 8 * scale);
+    } else {
+      c.strokeRect(x - 25 * scale, y - 12 * scale, 50 * scale, 12 * scale);
+      c.strokeRect(x - 18 * scale, y - 20 * scale, 36 * scale, 8 * scale);
+    }
+  } else if (type === 'scenery-column') {
+    if (!strokeOnly) {
+      c.fillRect(x - 8 * scale, y - 36 * scale, 16 * scale, 4 * scale);
+      c.fillRect(x - 6 * scale, y - 32 * scale, 12 * scale, 28 * scale);
+      c.fillRect(x - 9 * scale, y - 4 * scale, 18 * scale, 4 * scale);
+    } else {
+      c.strokeRect(x - 8 * scale, y - 36 * scale, 16 * scale, 4 * scale);
+      c.strokeRect(x - 6 * scale, y - 32 * scale, 12 * scale, 28 * scale);
+      c.strokeRect(x - 9 * scale, y - 4 * scale, 18 * scale, 4 * scale);
+    }
+  } else if (type === 'scenery-tree') {
+    if (!strokeOnly) {
+      c.fillStyle = '#8b5a2b';
+      c.fillRect(x - 2 * scale, y - 10 * scale, 4 * scale, 10 * scale);
+      c.fillStyle = '#228b22';
+      c.beginPath();
+      c.arc(x, y - 24 * scale, 12 * scale, 0, Math.PI * 2);
+      c.arc(x - 8 * scale, y - 16 * scale, 9 * scale, 0, Math.PI * 2);
+      c.arc(x + 8 * scale, y - 18 * scale, 10 * scale, 0, Math.PI * 2);
+      c.fill();
+    } else {
+      c.strokeRect(x - 2 * scale, y - 10 * scale, 4 * scale, 10 * scale);
+      c.beginPath();
+      c.arc(x, y - 24 * scale, 12 * scale, 0, Math.PI * 2);
+      c.stroke();
+      c.beginPath();
+      c.arc(x - 8 * scale, y - 16 * scale, 9 * scale, 0, Math.PI * 2);
+      c.stroke();
+      c.beginPath();
+      c.arc(x + 8 * scale, y - 18 * scale, 10 * scale, 0, Math.PI * 2);
+      c.stroke();
+    }
+  } else {
+    if (!strokeOnly) {
+      drawPropBox(c, x, y, scale);
+    } else {
+      c.strokeRect(x - 14 * scale, y - 24 * scale, 28 * scale, 24 * scale);
+    }
+  }
 }
 
 // ---------- INTERACCIÓN (MOUSE / TÁCTIL / ARRASTRE Y SOLTAR) ----------
@@ -974,14 +1175,17 @@ canvas.addEventListener('pointermove', e => {
   
   if (dragTarget.kind === 'vara') {
     const idx = dragTarget.index;
-    let clampedSym;
+    const isFrontal = varas[idx].isFrontal;
+    const minVal = isFrontal ? stageMeters.d : 0.1;
+    const maxVal = isFrontal ? stageMeters.d + 4.0 : stageMeters.d - 0.1;
+    
     if (currentView === 'plan') {
       const r = planRect();
       const sym = (my + dragOffset.y - r.y) / r.scale;
-      clampedSym = Math.max(0.1, Math.min(stageMeters.d - 0.1, sym));
+      clampedSym = Math.max(minVal, Math.min(maxVal, sym));
     } else if (currentView === 'persp') {
       const un = unproject3D(mx, my + dragOffset.y, stageMeters.h);
-      clampedSym = Math.max(0.1, Math.min(stageMeters.d - 0.1, un.y));
+      clampedSym = Math.max(minVal, Math.min(maxVal, un.y));
     } else {
       return;
     }
@@ -1146,6 +1350,32 @@ function renderCatalog() {
   });
 }
 
+function renderObjectsCatalog() {
+  const grid = document.getElementById('objects-catalog-grid');
+  if (!grid) return;
+  grid.innerHTML = '';
+  
+  OBJECT_CATALOG.forEach(o => {
+    const card = document.createElement('button');
+    card.type = 'button';
+    card.className = 'catalog-card';
+    card.innerHTML = `
+      <div class="catalog-card-header">
+        <span class="catalog-card-title">${o.icon} ${escapeHTML(o.name)}</span>
+        <span class="catalog-card-badge">${escapeHTML(o.category)}</span>
+      </div>
+      <p class="catalog-card-desc">${escapeHTML(o.description)}</p>
+    `;
+    
+    card.addEventListener('click', () => {
+      addObject(o.id);
+      document.getElementById('objects-catalog-dialog').close();
+    });
+    
+    grid.appendChild(card);
+  });
+}
+
 function addFixtureFromCatalog(modelId) {
   const defaults = getFixtureDefaults(modelId);
   const targetVara = varas.find(v => !v.isFrontal) || varas[0];
@@ -1266,6 +1496,8 @@ function setupEventListeners() {
   });
   document.getElementById('stageD').addEventListener('input', e => {
     stageMeters.d = Math.max(2, parseFloat(e.target.value) || 6);
+    clampAllVarasAndFixtures();
+    renderVarasPanel();
     draw();
     triggerAutosave();
   });
@@ -1347,9 +1579,13 @@ function setupEventListeners() {
     });
   });
 
-  // Agregar Objetos
-  document.getElementById('addPersonBtn').addEventListener('click', () => addObject('persona'));
-  document.getElementById('addPropBtn').addEventListener('click', () => addObject('objeto'));
+  // Catálogo de Objetos Modal
+  const objectsCatalogDialog = document.getElementById('objects-catalog-dialog');
+  document.getElementById('btn-open-objects-catalog').addEventListener('click', () => {
+    renderObjectsCatalog();
+    objectsCatalogDialog.showModal();
+  });
+  document.getElementById('close-objects-catalog-btn').addEventListener('click', () => objectsCatalogDialog.close());
 
   // Agregar Varas LX
   document.getElementById('btn-add-vara').addEventListener('click', () => {
@@ -1400,6 +1636,8 @@ function updateStageInputs() {
   document.getElementById('stageW').value = stageMeters.w;
   document.getElementById('stageD').value = stageMeters.d;
   document.getElementById('stageH').value = stageMeters.h;
+  clampAllVarasAndFixtures();
+  renderVarasPanel();
   draw();
   triggerAutosave();
 }
@@ -1634,13 +1872,13 @@ function renderFixturePanel() {
         
         <div class="range-group">
           <label>Giro (Pan)</label>
-          <input type="range" min="-180" max="180" step="5" value="${Math.round(f.pan || 0)}" data-pan-range="${f.id}">
+          <input type="range" min="0" max="360" step="5" value="${Math.round(f.pan || 0)}" data-pan-range="${f.id}">
           <span class="range-value">${Math.round(f.pan || 0)}°</span>
         </div>
         
         <div class="range-group">
           <label>Pivote (Tilt)</label>
-          <input type="range" min="0" max="90" step="5" value="${Math.round(f.tilt || 0)}" data-tilt-range="${f.id}">
+          <input type="range" min="0" max="360" step="5" value="${Math.round(f.tilt || 0)}" data-tilt-range="${f.id}">
           <span class="range-value">${Math.round(f.tilt || 0)}°</span>
         </div>
         
@@ -1901,10 +2139,11 @@ function renderObjectPanel() {
     card.className = 'fixture-card';
     const onstage = o.sxm >= 0 && o.sxm <= stageMeters.w && o.sym >= 0 && o.sym <= stageMeters.d;
     
+    const info = getObjectInfo(o.type);
     card.innerHTML = `
       <div class="fixture-card-header">
         <div class="fixture-card-title">
-          <span>${o.type === 'persona' ? '👤 Persona' : '📦 Objeto'} ${o.id}</span>
+          <span>${info.icon} ${escapeHTML(info.name)} ${o.id}</span>
         </div>
         <button type="button" class="fixture-card-delete" data-del-obj="${o.id}">&times;</button>
       </div>
@@ -2254,24 +2493,11 @@ function drawPerspObject(o) {
   
   // Cuerpo del sujeto
   ctx.fillStyle = `rgb(${Math.min(255, baseR + front.r)}, ${Math.min(255, baseG + front.g)}, ${Math.min(255, baseB + front.b)})`;
-  if (o.type === 'persona') {
-    drawPersonSilhouette(ctx, pos.x, pos.y, scale);
-  } else {
-    drawPropBox(ctx, pos.x, pos.y, scale);
-  }
+  drawCustomObject(ctx, pos.x, pos.y, scale, o.type, false);
   
   ctx.restore();
   
-  // Borde
-  ctx.strokeStyle = 'rgba(255,255,255,0.2)';
-  ctx.lineWidth = 1;
-  if (o.type === 'persona') {
-    ctx.beginPath();
-    ctx.ellipse(pos.x, pos.y - 38 * scale, 6 * scale, 6 * scale, 0, 0, Math.PI * 2);
-    ctx.stroke();
-  } else {
-    ctx.strokeRect(pos.x - 14 * scale, pos.y - 24 * scale, 28 * scale, 24 * scale);
-  }
+  drawCustomObject(ctx, pos.x, pos.y, scale, o.type, true);
 }
 
 function drawPerspView() {
@@ -2330,13 +2556,15 @@ function renderVarasPanel() {
     row.style.marginBottom = '12px';
     row.style.flexDirection = 'column';
     row.style.alignItems = 'stretch';
+    const minVal = v.isFrontal ? stageMeters.d : 0.1;
+    const maxVal = v.isFrontal ? stageMeters.d + 4.0 : stageMeters.d - 0.1;
     row.innerHTML = `
       <div style="display:flex; justify-content:space-between; width:100%; align-items:center; margin-bottom:4px;">
         <span style="font-size:11px; font-weight:600; color:var(--text-light);">${escapeHTML(v.name)}</span>
         ${v.isFrontal ? '' : `<button type="button" class="btn-delete-vara" data-index="${index}" style="background:none; border:none; color:var(--ink-dim); font-size:14px; cursor:pointer;" title="Eliminar Vara">&times;</button>`}
       </div>
       <div style="display:flex; align-items:center; gap:8px; width:100%;">
-        <input type="range" min="0.1" max="${stageMeters.d - 0.1}" step="0.1" value="${v.sym}" data-vara-slider="${index}" style="flex:1;">
+        <input type="range" min="${minVal}" max="${maxVal}" step="0.1" value="${v.sym}" data-vara-slider="${index}" style="flex:1;">
         <span style="font-size:10px; min-width:30px; text-align:right; color:var(--ink-dim);">${v.sym.toFixed(1)}m</span>
       </div>
     `;

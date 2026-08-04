@@ -158,14 +158,9 @@
         <!-- Tab Panel: Objetos -->
         <div class="tab-content" id="tab-objetos">
           <div class="panel-section-header">
-            <div class="button-split">
-              <button type="button" class="btn btn-outline" id="addPersonBtn">
-                <span>👤 Persona</span>
-              </button>
-              <button type="button" class="btn btn-outline" id="addPropBtn">
-                <span>📦 Objeto</span>
-              </button>
-            </div>
+            <button type="button" class="btn btn-outline" id="btn-open-objects-catalog" style="width: 100%; display: flex; justify-content: center; align-items: center; gap: 8px;">
+              <span>➕ Añadir Objeto / Escenografía</span>
+            </button>
           </div>
           <div class="panel-scroll-area">
             <div class="object-list-container" id="objectList">
@@ -209,6 +204,21 @@
       <p class="modal-description">Selecciona un modelo del catálogo de fábrica. Incluye proyectores LED y equipos convencionales con filtros de Gel.</p>
       
       <div class="catalog-grid" id="catalog-items-grid">
+        <!-- Rendered dynamically from catalog.js -->
+      </div>
+    </div>
+  </dialog>
+
+  <!-- 1b. Catálogo de Objetos Modal -->
+  <dialog id="objects-catalog-dialog" class="custom-modal large-modal">
+    <header class="modal-header">
+      <h2>Catálogo de Objetos y Escenografía</h2>
+      <button type="button" class="modal-close-btn" id="close-objects-catalog-btn" aria-label="Cerrar modal">&times;</button>
+    </header>
+    <div class="modal-body">
+      <p class="modal-description">Selecciona un elemento para agregarlo al escenario. Puedes colocar actores, instrumentos musicales, mobiliario y elementos escenográficos para planificar tu puesta de luces.</p>
+      
+      <div class="catalog-grid" id="objects-catalog-grid">
         <!-- Rendered dynamically from catalog.js -->
       </div>
     </div>
