@@ -138,7 +138,6 @@ export function getFixtureDefaults(modelId) {
     gelId: model.type === 'conventional' ? 'none' : null,
     minAngle: model.minAngle,
     maxAngle: model.maxAngle,
-    intensity: 80,
-    strobe: false
+    intensity: 80
   };
 }

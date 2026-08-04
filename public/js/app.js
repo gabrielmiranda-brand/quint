@@ -1,7 +1,7 @@
 // Quint - Motor de Simulación Teatral y Controlador Principal
-import { CATALOG, GELS, getFixtureDefaults } from './catalog.js?v=1.2.2';
-import { saveProject, loadProject, clearProject, exportProjectJSON, importProjectJSON } from './storage.js?v=1.2.2';
-import { exportCanvasAsPNG, exportProjectPDF } from './export.js?v=1.2.2';
+import { CATALOG, GELS, getFixtureDefaults } from './catalog.js';
+import { saveProject, loadProject, clearProject, exportProjectJSON, importProjectJSON } from './storage.js';
+import { exportCanvasAsPNG, exportProjectPDF } from './export.js';
 
 // Elementos del DOM
 const canvas = document.getElementById('stage');
@@ -39,7 +39,6 @@ function getDefaultVaras() {
 }
 
 const MARGIN = 44;
-let strobePhase = true;
 let saveTimeout = null;
 
 // Inicialización de la Aplicación
@@ -85,14 +84,6 @@ function initApp() {
   renderObjectPanel();
   renderCueList();
   draw();
-  
-  // Iniciar timer de estrobo
-  setInterval(() => {
-    if (fixtures.some(f => f.strobe)) {
-      strobePhase = !strobePhase;
-      draw();
-    }
-  }, 90);
 }
 
 // Escenarios predeterminados
@@ -121,7 +112,6 @@ function loadDefaultScene() {
       beamAngle: 25,
       color: '#ff3b3b',
       intensity: 85,
-      strobe: false,
       channel: 1,
       dmxAddress: '1',
       purpose: 'Cenital Principal Izquierda'
@@ -144,7 +134,6 @@ function loadDefaultScene() {
       beamAngle: 25,
       color: '#3bff6e',
       intensity: 85,
-      strobe: false,
       channel: 2,
       dmxAddress: '5',
       purpose: 'Cenital Principal Derecha'
@@ -169,7 +158,6 @@ function loadDefaultScene() {
       gelId: 'l181',
       gelCode: 'Lee 181',
       intensity: 90,
-      strobe: false,
       channel: 3,
       dmxAddress: '9',
       purpose: 'Contraluz Congo Blue'
@@ -193,7 +181,6 @@ function loadDefaultScene() {
       gelId: 'none',
       gelCode: 'Sin Gel',
       intensity: 75,
-      strobe: false,
       channel: 4,
       dmxAddress: '13',
       purpose: 'Calle Lavanda'
@@ -345,8 +332,31 @@ function beamTriangle(f) {
 }
 
 function hexToRgb(hex) {
-  const v = parseInt(hex.slice(1), 16);
-  return { r: (v >> 16) & 255, g: (v >> 8) & 255, b: v & 255 };
+  if (!hex || typeof hex !== 'string') return { r: 255, g: 179, b: 71 };
+  const cleanHex = hex.trim().replace('#', '');
+  if (cleanHex.length === 3) {
+    const r = parseInt(cleanHex[0] + cleanHex[0], 16);
+    const g = parseInt(cleanHex[1] + cleanHex[1], 16);
+    const b = parseInt(cleanHex[2] + cleanHex[2], 16);
+    return { r, g, b };
+  }
+  if (cleanHex.length === 6) {
+    const v = parseInt(cleanHex, 16);
+    if (!isNaN(v)) {
+      return { r: (v >> 16) & 255, g: (v >> 8) & 255, b: v & 255 };
+    }
+  }
+  return { r: 255, g: 179, b: 71 };
+}
+
+function escapeHTML(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 // ---------- RENDERIZADO DEL ESCENARIO (VISTAS) ----------
@@ -846,8 +856,11 @@ function drawPropBox(c, x, y, scale = 1.0) {
   c.fillRect(x - w / 2, y - h, w, h);
 }
 
-// ---------- INTERACCIÓN (MOUSE / ARRASTRE Y SOLTAR) ----------
-canvas.addEventListener('mousedown', e => {
+// ---------- INTERACCIÓN (MOUSE / TÁCTIL / ARRASTRE Y SOLTAR) ----------
+canvas.addEventListener('pointerdown', e => {
+  if (e.pointerType === 'touch') {
+    canvas.style.touchAction = 'none';
+  }
   const rect = canvas.getBoundingClientRect();
   const mx = e.clientX - rect.left;
   const my = e.clientY - rect.top;
@@ -930,7 +943,7 @@ canvas.addEventListener('mousedown', e => {
   }
 });
 
-canvas.addEventListener('mousemove', e => {
+canvas.addEventListener('pointermove', e => {
   if (!dragTarget) return;
   const rect = canvas.getBoundingClientRect();
   const mx = e.clientX - rect.left;
@@ -1093,8 +1106,13 @@ canvas.addEventListener('mousemove', e => {
   }
 });
 
-window.addEventListener('mouseup', () => {
+window.addEventListener('pointerup', () => {
   dragTarget = null;
+  canvas.style.touchAction = '';
+});
+window.addEventListener('pointercancel', () => {
+  dragTarget = null;
+  canvas.style.touchAction = '';
 });
 
 // ---------- CARGA Y RENDERIZADO DEL CATÁLOGO ----------
@@ -1108,11 +1126,11 @@ function renderCatalog() {
     card.className = 'catalog-card';
     card.innerHTML = `
       <div class="catalog-card-header">
-        <span class="catalog-card-title">${m.name}</span>
+        <span class="catalog-card-title">${escapeHTML(m.name)}</span>
         <span class="catalog-card-badge">${m.type === 'led' ? 'LED' : 'Conv.'}</span>
       </div>
-      <div class="catalog-card-brand">${m.brand}</div>
-      <p class="catalog-card-desc">${m.description}</p>
+      <div class="catalog-card-brand">${escapeHTML(m.brand)}</div>
+      <p class="catalog-card-desc">${escapeHTML(m.description)}</p>
       <div class="catalog-card-specs">
         <span>Apertura: ${m.minAngle}° - ${m.maxAngle}°</span>
         <span>${m.subType.toUpperCase()}</span>
@@ -1490,7 +1508,7 @@ function renderFixturePanel() {
     if (f.type === 'conventional') {
       let gelOptions = GELS.map(g => `
         <option value="${g.id}" ${f.gelId === g.id ? 'selected' : ''}>
-          [${g.code}] ${g.name}
+          [${escapeHTML(g.code)}] ${escapeHTML(g.name)}
         </option>
       `).join('');
       
@@ -1520,7 +1538,7 @@ function renderFixturePanel() {
         <div class="range-group">
           <label>Vara LX</label>
           <select data-vara-assign="${f.id}" style="flex:1;padding:4px 6px;font-size:11px;">
-            ${varas.map(v => `<option value="${v.id}" ${f.varaId === v.id ? 'selected' : ''}>${v.name}</option>`).join('')}
+            ${varas.map(v => `<option value="${v.id}" ${f.varaId === v.id ? 'selected' : ''}>${escapeHTML(v.name)}</option>`).join('')}
           </select>
         </div>
         <div class="range-group">
@@ -1574,7 +1592,7 @@ function renderFixturePanel() {
       <div class="fixture-card-header">
         <div class="fixture-card-title">
           <span class="color-indicator"></span>
-          <span>${f.name}</span>
+          <span>${escapeHTML(f.name)}</span>
         </div>
         <button type="button" class="fixture-card-delete" data-del-btn="${f.id}" title="Eliminar foco">&times;</button>
       </div>
@@ -1593,12 +1611,12 @@ function renderFixturePanel() {
           </div>
           <div>
             <label style="font-size:10px; color:var(--ink-dim); display:block; margin-bottom:2px;">Dirección DMX</label>
-            <input type="text" value="${f.dmxAddress || ''}" placeholder="--" data-dmx-input="${f.id}" style="width:100%; background:#0f0f13; border:1px solid var(--border); color:#fff; border-radius:3px; padding:3px 6px; font-size:11px; box-sizing:border-box;">
+            <input type="text" value="${escapeHTML(f.dmxAddress || '')}" placeholder="--" data-dmx-input="${f.id}" style="width:100%; background:#0f0f13; border:1px solid var(--border); color:#fff; border-radius:3px; padding:3px 6px; font-size:11px; box-sizing:border-box;">
           </div>
         </div>
         <div style="margin-bottom:8px;">
           <label style="font-size:10px; color:var(--ink-dim); display:block; margin-bottom:2px;">Propósito / Apuntamiento</label>
-          <input type="text" value="${f.purpose || ''}" placeholder="Puntería del haz..." data-purpose-input="${f.id}" style="width:100%; background:#0f0f13; border:1px solid var(--border); color:#fff; border-radius:3px; padding:3px 6px; font-size:11px; box-sizing:border-box;">
+          <input type="text" value="${escapeHTML(f.purpose || '')}" placeholder="Puntería del haz..." data-purpose-input="${f.id}" style="width:100%; background:#0f0f13; border:1px solid var(--border); color:#fff; border-radius:3px; padding:3px 6px; font-size:11px; box-sizing:border-box;">
         </div>
         
         <div class="range-group">
@@ -1867,16 +1885,6 @@ function renderFixturePanel() {
     });
   });
 
-  list.querySelectorAll('[data-strobe-btn]').forEach(btn => {
-    btn.addEventListener('click', e => {
-      const f = fixtures.find(f => f.id === parseInt(e.target.dataset.strobeBtn));
-      f.strobe = !f.strobe;
-      btn.innerText = f.strobe ? 'ON' : 'OFF';
-      btn.classList.toggle('on', f.strobe);
-      draw();
-      triggerAutosave();
-    });
-  });
 }
 
 function renderObjectPanel() {
@@ -2324,7 +2332,7 @@ function renderVarasPanel() {
     row.style.alignItems = 'stretch';
     row.innerHTML = `
       <div style="display:flex; justify-content:space-between; width:100%; align-items:center; margin-bottom:4px;">
-        <span style="font-size:11px; font-weight:600; color:var(--text-light);">${v.name}</span>
+        <span style="font-size:11px; font-weight:600; color:var(--text-light);">${escapeHTML(v.name)}</span>
         ${v.isFrontal ? '' : `<button type="button" class="btn-delete-vara" data-index="${index}" style="background:none; border:none; color:var(--ink-dim); font-size:14px; cursor:pointer;" title="Eliminar Vara">&times;</button>`}
       </div>
       <div style="display:flex; align-items:center; gap:8px; width:100%;">
@@ -2436,17 +2444,17 @@ function renderPatchView() {
         <td style="padding:8px;">
           <input type="number" class="patch-input patch-channel" value="${f.channel || ''}" placeholder="--" style="width:60px; background:rgba(0,0,0,0.3); border:1px solid var(--border); color:#fff; border-radius:3px; padding:3px 6px; text-align:center; font-size:11px;">
         </td>
-        <td style="padding:8px; font-weight:500;">${f.name}</td>
-        <td style="padding:8px; color:#a0a0b0;">${supportDesc}</td>
+        <td style="padding:8px; font-weight:500;">${escapeHTML(f.name)}</td>
+        <td style="padding:8px; color:#a0a0b0;">${escapeHTML(supportDesc)}</td>
         <td style="padding:8px;">
-          <span style="display:inline-block; width:12px; height:12px; border-radius:50%; background:${f.color}; vertical-align:middle; margin-right:6px; border:1px solid rgba(255,255,255,0.2);"></span>
-          ${gelLabel}
+          <span style="display:inline-block; width:12px; height:12px; border-radius:50%; background:${escapeHTML(f.color)}; vertical-align:middle; margin-right:6px; border:1px solid rgba(255,255,255,0.2);"></span>
+          ${escapeHTML(gelLabel)}
         </td>
         <td style="padding:8px;">
-          <input type="text" class="patch-input patch-dmx" value="${f.dmxAddress || ''}" placeholder="--" style="width:80px; background:rgba(0,0,0,0.3); border:1px solid var(--border); color:#fff; border-radius:3px; padding:3px 6px; text-align:center; font-size:11px;">
+          <input type="text" class="patch-input patch-dmx" value="${escapeHTML(f.dmxAddress || '')}" placeholder="--" style="width:80px; background:rgba(0,0,0,0.3); border:1px solid var(--border); color:#fff; border-radius:3px; padding:3px 6px; text-align:center; font-size:11px;">
         </td>
         <td style="padding:8px;">
-          <input type="text" class="patch-input patch-purpose" value="${f.purpose || ''}" placeholder="Puntería del haz..." style="width:100%; background:rgba(0,0,0,0.3); border:1px solid var(--border); color:#fff; border-radius:3px; padding:3px 6px; font-size:11px;">
+          <input type="text" class="patch-input patch-purpose" value="${escapeHTML(f.purpose || '')}" placeholder="Puntería del haz..." style="width:100%; background:rgba(0,0,0,0.3); border:1px solid var(--border); color:#fff; border-radius:3px; padding:3px 6px; font-size:11px;">
         </td>
       </tr>
     `;
@@ -2505,7 +2513,7 @@ function renderCueList() {
     
     card.innerHTML = `
       <div style="display:flex; justify-content:space-between; align-items:center; width:100%;">
-        <span style="font-weight:600; font-size:12px; color:#fff;">Cue ${index + 1}: ${cue.name}</span>
+        <span style="font-weight:600; font-size:12px; color:#fff;">Cue ${index + 1}: ${escapeHTML(cue.name)}</span>
         <button type="button" class="btn-delete-cue" data-index="${index}" style="background:none; border:none; color:var(--ink-dim); font-size:16px; cursor:pointer;" title="Eliminar Escena">&times;</button>
       </div>
       <div style="font-size:10px; color:var(--ink-dim); display:flex; gap:12px;">
@@ -2525,7 +2533,7 @@ function renderCueList() {
     card.querySelector('.update-cue-btn').addEventListener('click', () => {
       showConfirm(
         '¿Actualizar Escena?',
-        `¿Sobrescribir la escena "${cue.name}" con el estado de luces actual del escenario?`,
+        `¿Sobrescribir la escena "${escapeHTML(cue.name)}" con el estado de luces actual del escenario?`,
         () => {
           const intensities = {};
           const colors = {};
@@ -2546,7 +2554,7 @@ function renderCueList() {
       e.stopPropagation();
       showConfirm(
         '¿Eliminar Escena?',
-        `¿Estás seguro de que deseas eliminar la escena "${cue.name}"?`,
+        `¿Estás seguro de que deseas eliminar la escena "${escapeHTML(cue.name)}"?`,
         () => {
           cues.splice(index, 1);
           renderCueList();
@@ -2564,7 +2572,7 @@ function fadeToCue(cue) {
     cancelAnimationFrame(currentFadeInterval);
   }
   
-  const durationMs = (parseFloat(document.getElementById('cue-fade-time').value) || cue.fadeTime || 1.5) * 1000;
+  const durationMs = (cue.fadeTime !== undefined ? cue.fadeTime : parseFloat(document.getElementById('cue-fade-time').value) || 1.5) * 1000;
   if (durationMs <= 0) {
     fixtures.forEach(f => {
       if (cue.intensities[f.id] !== undefined) f.intensity = cue.intensities[f.id];
@@ -2614,15 +2622,6 @@ function fadeToCue(cue) {
   }
   
   currentFadeInterval = requestAnimationFrame(updateFade);
-}
-
-function hexToRgb(hex) {
-  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-  return result ? {
-    r: parseInt(result[1], 16),
-    g: parseInt(result[2], 16),
-    b: parseInt(result[3], 16)
-  } : null;
 }
 
 function rgbToHex(r, g, b) {

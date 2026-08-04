@@ -32,6 +32,10 @@ export function loadProject() {
     const data = JSON.parse(dataStr);
     // Validación básica de datos
     if (data && data.stageMeters && Array.isArray(data.fixtures) && Array.isArray(data.objects)) {
+      // Reparar de manera retrocompatible si falta alguna dimensión
+      if (typeof data.stageMeters.w !== 'number' || isNaN(data.stageMeters.w)) data.stageMeters.w = 8;
+      if (typeof data.stageMeters.d !== 'number' || isNaN(data.stageMeters.d)) data.stageMeters.d = 6;
+      if (typeof data.stageMeters.h !== 'number' || isNaN(data.stageMeters.h)) data.stageMeters.h = 7;
       return data;
     }
     return null;
