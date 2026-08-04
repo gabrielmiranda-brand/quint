@@ -6,6 +6,16 @@
   <title>Quint - Diseñador de Iluminación Teatral</title>
   <meta name="description" content="Herramienta interactiva para planificación, mezcla de color aditiva y previsualización de plantas de luces teatrales y eventos.">
   
+  <script>
+    window.onerror = function (message, url, line, col, error) {
+      alert("ERROR CRÍTICO:\n" + message + "\n\nArchivo: " + url + "\nLínea: " + line + ":" + col + "\nStack: " + (error ? error.stack : 'no stack'));
+      return false;
+    };
+    window.addEventListener('unhandledrejection', function(event) {
+      alert("PROMISE REJECTED:\n" + event.reason);
+    });
+  </script>
+  
   <!-- Google Fonts: Inter -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
