@@ -25,6 +25,8 @@ let dragOffset = { x: 0, y: 0 };
 let projectName = 'Mi Planta de Luces';
 let stageMeters = { w: 8, d: 6, h: 7 };
 let varas = [];
+let cues = [];
+let currentFadeInterval = null;
 
 function getDefaultVaras() {
   return [
@@ -57,6 +59,7 @@ function initApp() {
     objects = savedState.objects;
     projectName = savedState.projectName || 'Mi Planta de Luces';
     varas = savedState.varas || getDefaultVaras();
+    cues = savedState.cues || [];
     
     // Asegurar que el idCounter no colisione
     const maxFixtureId = fixtures.reduce((max, f) => f.id > max ? f.id : max, 0);
@@ -80,6 +83,7 @@ function initApp() {
   renderVarasPanel();
   renderFixturePanel();
   renderObjectPanel();
+  renderCueList();
   draw();
   
   // Iniciar timer de estrobo
@@ -96,6 +100,7 @@ function loadDefaultScene() {
   projectName = 'Ejemplo de Escena';
   stageMeters = { w: 8, d: 6, h: 7 };
   varas = getDefaultVaras();
+  cues = [];
   
   fixtures = [
     {
@@ -116,7 +121,10 @@ function loadDefaultScene() {
       beamAngle: 25,
       color: '#ff3b3b',
       intensity: 85,
-      strobe: false
+      strobe: false,
+      channel: 1,
+      dmxAddress: '1',
+      purpose: 'Cenital Principal Izquierda'
     },
     {
       id: idCounter++,
@@ -136,7 +144,10 @@ function loadDefaultScene() {
       beamAngle: 25,
       color: '#3bff6e',
       intensity: 85,
-      strobe: false
+      strobe: false,
+      channel: 2,
+      dmxAddress: '5',
+      purpose: 'Cenital Principal Derecha'
     },
     {
       id: idCounter++,
@@ -158,7 +169,10 @@ function loadDefaultScene() {
       gelId: 'l181',
       gelCode: 'Lee 181',
       intensity: 90,
-      strobe: false
+      strobe: false,
+      channel: 3,
+      dmxAddress: '9',
+      purpose: 'Contraluz Congo Blue'
     },
     {
       id: idCounter++,
@@ -179,7 +193,10 @@ function loadDefaultScene() {
       gelId: 'none',
       gelCode: 'Sin Gel',
       intensity: 75,
-      strobe: false
+      strobe: false,
+      channel: 4,
+      dmxAddress: '13',
+      purpose: 'Calle Lavanda'
     }
   ];
   
@@ -725,11 +742,6 @@ function drawElevView() {
   const e = elevRect();
   ctx.save();
   
-  // Clip para que las luces no traspasen el piso de la elevación (y <= e.floorY)
-  ctx.beginPath();
-  ctx.rect(0, 0, W, e.floorY);
-  ctx.clip();
-  
   // Coleccionar todos los elementos dibujables en elevación
   const items = [];
   fixtures.forEach(f => {
@@ -840,13 +852,24 @@ canvas.addEventListener('mousedown', e => {
   const mx = e.clientX - rect.left;
   const my = e.clientY - rect.top;
   
-  // 1. En vista de Planta, verificar si arrastra Varas LX
+  // 1. Verificar si arrastra Varas LX
   if (currentView === 'plan') {
     const r = planRect();
     for (let i = 0; i < varas.length; i++) {
       const v = varas[i];
       const yPx = r.y + v.sym * r.scale;
       if (Math.abs(my - yPx) < 7) {
+        dragTarget = { kind: 'vara', id: v.id, index: i };
+        dragOffset = { x: 0, y: yPx - my };
+        return;
+      }
+    }
+  } else if (currentView === 'persp') {
+    for (let i = 0; i < varas.length; i++) {
+      const v = varas[i];
+      const vL = project3D(0.2, v.sym, stageMeters.h);
+      const yPx = vL.y;
+      if (Math.abs(my - yPx) < 8) {
         dragTarget = { kind: 'vara', id: v.id, index: i };
         dragOffset = { x: 0, y: yPx - my };
         return;
@@ -867,7 +890,15 @@ canvas.addEventListener('mousedown', e => {
   // 3. Verificar si hace click en objetos
   for (let i = objects.length - 1; i >= 0; i--) {
     const o = objects[i];
-    const p = currentView === 'plan' ? planPixel(o.sxm, o.sym) : getElevObjectPos(o);
+    let p;
+    if (currentView === 'plan') {
+      p = planPixel(o.sxm, o.sym);
+    } else if (currentView === 'elev') {
+      p = getElevObjectPos(o);
+    } else { // persp
+      p = project3D(o.sxm, o.sym, 0);
+    }
+    
     const hLimit = currentView === 'plan' ? 20 : 45 * p.scale;
     if (Math.hypot(p.x - mx, p.y - my) < 22 && my > p.y - hLimit && my < p.y + 6) {
       dragTarget = { kind: 'object', id: o.id };
@@ -879,7 +910,15 @@ canvas.addEventListener('mousedown', e => {
   // 4. Verificar si hace click en focos
   for (let i = fixtures.length - 1; i >= 0; i--) {
     const f = fixtures[i];
-    const p = currentView === 'plan' ? planPixel(f.sxm, f.sym) : getElevFixturePos(f);
+    let p;
+    if (currentView === 'plan') {
+      p = planPixel(f.sxm, f.sym);
+    } else if (currentView === 'elev') {
+      p = getElevFixturePos(f);
+    } else { // persp
+      p = project3D(f.sxm, f.sym, f.height);
+    }
+    
     if (Math.hypot(p.x - mx, p.y - my) < 14) {
       dragTarget = { kind: 'fixture', id: f.id };
       selectedFixtureId = f.id;
@@ -921,10 +960,19 @@ canvas.addEventListener('mousemove', e => {
   }
   
   if (dragTarget.kind === 'vara') {
-    const r = planRect();
     const idx = dragTarget.index;
-    const sym = (my + dragOffset.y - r.y) / r.scale;
-    const clampedSym = Math.max(0.1, Math.min(stageMeters.d - 0.1, sym));
+    let clampedSym;
+    if (currentView === 'plan') {
+      const r = planRect();
+      const sym = (my + dragOffset.y - r.y) / r.scale;
+      clampedSym = Math.max(0.1, Math.min(stageMeters.d - 0.1, sym));
+    } else if (currentView === 'persp') {
+      const un = unproject3D(mx, my + dragOffset.y, stageMeters.h);
+      clampedSym = Math.max(0.1, Math.min(stageMeters.d - 0.1, un.y));
+    } else {
+      return;
+    }
+    
     varas[idx].sym = clampedSym;
     
     // Sincronizar todos los focos montados en esta vara
@@ -947,17 +995,47 @@ canvas.addEventListener('mousemove', e => {
       const m = planMeters(mx + dragOffset.x, my + dragOffset.y);
       if (f.mountType === 'vara') {
         f.sxm = Math.max(0.1, Math.min(stageMeters.w - 0.1, m.sxm));
-        // f.sym está bloqueado por la profundidad de la vara
         const targetVara = varas.find(v => v.id === f.varaId);
         if (targetVara) f.sym = targetVara.sym;
       } else if (f.mountType === 'calle') {
         f.sym = Math.max(0.1, Math.min(stageMeters.d - 0.1, m.sym));
-        // f.sxm está bloqueado por el extremo
         f.sxm = f.sxm < stageMeters.w / 2 ? 0 : stageMeters.w;
       } else {
-        // Piso libre
         f.sxm = Math.max(0.1, Math.min(stageMeters.w - 0.1, m.sxm));
         f.sym = Math.max(0.1, Math.min(stageMeters.d - 0.1, m.sym));
+      }
+    } else if (currentView === 'persp') {
+      if (f.mountType === 'vara') {
+        const un = unproject3D(mx + dragOffset.x, my + dragOffset.y, stageMeters.h);
+        f.sxm = Math.max(0.1, Math.min(stageMeters.w - 0.1, un.x));
+        const targetVara = varas.find(v => v.id === f.varaId);
+        if (targetVara) f.sym = targetVara.sym;
+      } else if (f.mountType === 'calle') {
+        const xLock = f.sxm < stageMeters.w / 2 ? 0 : stageMeters.w;
+        const rx = xLock - stageMeters.w / 2;
+        const cx = W / 2;
+        const baseScale = (W - 140) / stageMeters.w;
+        const denom = rx * baseScale;
+        const backScale = 0.55;
+        let scale = 0.7;
+        if (Math.abs(denom) > 0.001) {
+          scale = (mx + dragOffset.x - cx) / denom;
+        }
+        scale = Math.max(backScale, Math.min(1.2, scale));
+        const t = (scale - backScale) / (1.0 - backScale);
+        f.sym = Math.max(0.1, Math.min(stageMeters.d - 0.1, t * stageMeters.d));
+        
+        const cy = H / 2 + 10;
+        const floorYBack = cy - 50;
+        const floorYFront = cy + 100;
+        const floorY = floorYBack + (floorYFront - floorYBack) * t;
+        const heightScale = (H - 180) / stageMeters.h;
+        f.height = (floorY - (my + dragOffset.y)) / (heightScale * scale);
+        f.height = Math.max(0.5, Math.min(stageMeters.h, f.height));
+      } else { // piso
+        const un = unproject3D(mx + dragOffset.x, my + dragOffset.y, 0.2);
+        f.sxm = Math.max(0.1, Math.min(stageMeters.w - 0.1, un.x));
+        f.sym = Math.max(0.1, Math.min(stageMeters.d - 0.1, un.y));
       }
     } else {
       const er = elevRect();
@@ -969,11 +1047,11 @@ canvas.addEventListener('mousemove', e => {
       if (f.mountType === 'vara') {
         f.sxm = (mx + dragOffset.x - centerX) / (er.scaleX * scale) + stageMeters.w / 2;
         f.sxm = Math.max(0, Math.min(stageMeters.w, f.sxm));
-        f.height = stageMeters.h; // bloqueado a techo
+        f.height = stageMeters.h;
       } else if (f.mountType === 'piso') {
         f.sxm = (mx + dragOffset.x - centerX) / (er.scaleX * scale) + stageMeters.w / 2;
         f.sxm = Math.max(0, Math.min(stageMeters.w, f.sxm));
-        f.height = 0.2; // bloqueado a suelo
+        f.height = 0.2;
       } else if (f.mountType === 'calle') {
         f.height = (floorY - (my + dragOffset.y)) / (er.scaleY * scale);
         f.height = Math.max(0.5, Math.min(stageMeters.h, f.height));
@@ -996,6 +1074,10 @@ canvas.addEventListener('mousemove', e => {
       const m = planMeters(mx + dragOffset.x, my + dragOffset.y);
       o.sxm = Math.max(-1, Math.min(stageMeters.w + 1, m.sxm));
       o.sym = Math.max(-1, Math.min(stageMeters.d + 1, m.sym));
+    } else if (currentView === 'persp') {
+      const un = unproject3D(mx + dragOffset.x, my + dragOffset.y, 0);
+      o.sxm = Math.max(0.1, Math.min(stageMeters.w - 0.1, un.x));
+      o.sym = Math.max(0.1, Math.min(stageMeters.d - 0.1, un.y));
     } else {
       const er = elevRect();
       const centerX = er.x + (stageMeters.w / 2) * er.scaleX;
@@ -1050,6 +1132,11 @@ function addFixtureFromCatalog(modelId) {
   const defaults = getFixtureDefaults(modelId);
   const targetVara = varas.find(v => !v.isFrontal) || varas[0];
   
+  const maxChan = fixtures.reduce((max, fix) => Math.max(max, fix.channel || 0), 0);
+  const nextChan = maxChan + 1;
+  const maxDmx = fixtures.reduce((max, fix) => Math.max(max, parseInt(fix.dmxAddress) || 0), 0);
+  const nextDmx = maxDmx + 1;
+  
   const f = {
     id: idCounter++,
     kind: 'fixture',
@@ -1061,7 +1148,10 @@ function addFixtureFromCatalog(modelId) {
     height: stageMeters.h,
     pan: 0,
     tilt: 35,
-    dir: 'frente'
+    dir: 'frente',
+    channel: nextChan,
+    dmxAddress: String(nextDmx),
+    purpose: ''
   };
   
   fixtures.push(f);
@@ -1109,7 +1199,7 @@ function setupEventListeners() {
 
   // Importación/Exportación JSON
   document.getElementById('json-export-btn').addEventListener('click', () => {
-    exportProjectJSON(stageMeters, fixtures, objects, varas, projectName);
+    exportProjectJSON(stageMeters, fixtures, objects, varas, cues, projectName);
   });
   document.getElementById('json-import-input').addEventListener('change', e => {
     if (e.target.files.length === 0) return;
@@ -1120,6 +1210,7 @@ function setupEventListeners() {
         objects = res.objects;
         projectName = res.projectName;
         varas = res.varas || getDefaultVaras();
+        cues = res.cues || [];
         
         // Sincronizar UI
         document.getElementById('project-name-input').value = projectName;
@@ -1133,6 +1224,7 @@ function setupEventListeners() {
         renderVarasPanel();
         renderFixturePanel();
         renderObjectPanel();
+        renderCueList();
         draw();
         triggerAutosave();
         storageDialog.close();
@@ -1194,6 +1286,7 @@ function setupEventListeners() {
         renderVarasPanel();
         renderFixturePanel();
         renderObjectPanel();
+        renderCueList();
         draw();
         triggerAutosave();
       }
@@ -1206,7 +1299,22 @@ function setupEventListeners() {
       document.querySelectorAll('#viewSwitch button').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       currentView = btn.dataset.view;
-      draw();
+      
+      const canvasEl = document.getElementById('stage');
+      const patchEl = document.getElementById('patch-view-container');
+      const overlayEl = document.getElementById('floor-label');
+      
+      if (currentView === 'patch') {
+        canvasEl.style.display = 'none';
+        if (overlayEl) overlayEl.style.display = 'none';
+        patchEl.style.display = 'block';
+        renderPatchView();
+      } else {
+        canvasEl.style.display = 'block';
+        if (overlayEl) overlayEl.style.display = 'block';
+        patchEl.style.display = 'none';
+        draw();
+      }
     });
   });
 
@@ -1451,6 +1559,21 @@ function renderFixturePanel() {
       
       ${isSelected ? `
       <div class="fixture-card-controls">
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-bottom:8px;">
+          <div>
+            <label style="font-size:10px; color:var(--ink-dim); display:block; margin-bottom:2px;">Canal Consola</label>
+            <input type="number" value="${f.channel || ''}" placeholder="--" data-channel-input="${f.id}" style="width:100%; background:#0f0f13; border:1px solid var(--border); color:#fff; border-radius:3px; padding:3px 6px; font-size:11px; box-sizing:border-box;">
+          </div>
+          <div>
+            <label style="font-size:10px; color:var(--ink-dim); display:block; margin-bottom:2px;">Dirección DMX</label>
+            <input type="text" value="${f.dmxAddress || ''}" placeholder="--" data-dmx-input="${f.id}" style="width:100%; background:#0f0f13; border:1px solid var(--border); color:#fff; border-radius:3px; padding:3px 6px; font-size:11px; box-sizing:border-box;">
+          </div>
+        </div>
+        <div style="margin-bottom:8px;">
+          <label style="font-size:10px; color:var(--ink-dim); display:block; margin-bottom:2px;">Propósito / Apuntamiento</label>
+          <input type="text" value="${f.purpose || ''}" placeholder="Puntería del haz..." data-purpose-input="${f.id}" style="width:100%; background:#0f0f13; border:1px solid var(--border); color:#fff; border-radius:3px; padding:3px 6px; font-size:11px; box-sizing:border-box;">
+        </div>
+        
         <div class="range-group">
           <label>Soporte</label>
           <select data-mount-select="${f.id}" style="flex:1;padding:4px 6px;font-size:11px;font-weight:600;">
@@ -1516,6 +1639,36 @@ function renderFixturePanel() {
     });
   });
   
+  list.querySelectorAll('[data-channel-input]').forEach(input => {
+    input.addEventListener('input', e => {
+      const f = fixtures.find(f => f.id === parseInt(e.target.dataset.channelInput));
+      if (f) {
+        f.channel = parseInt(e.target.value) || null;
+        triggerAutosave();
+      }
+    });
+  });
+  
+  list.querySelectorAll('[data-dmx-input]').forEach(input => {
+    input.addEventListener('input', e => {
+      const f = fixtures.find(f => f.id === parseInt(e.target.dataset.dmxInput));
+      if (f) {
+        f.dmxAddress = e.target.value;
+        triggerAutosave();
+      }
+    });
+  });
+  
+  list.querySelectorAll('[data-purpose-input]').forEach(input => {
+    input.addEventListener('input', e => {
+      const f = fixtures.find(f => f.id === parseInt(e.target.dataset.purposeInput));
+      if (f) {
+        f.purpose = e.target.value;
+        triggerAutosave();
+      }
+    });
+  });
+
   list.querySelectorAll('[data-mount-select]').forEach(select => {
     select.addEventListener('change', e => {
       const f = fixtures.find(f => f.id === parseInt(e.target.dataset.mountSelect));
@@ -1769,6 +1922,32 @@ function project3D(x, y, z) {
   return { x: px, y: py, scale };
 }
 
+// Invierte coordenadas de pantalla (mx, my) a coordenadas físicas (x, y) de escenario en un plano Z dado
+function unproject3D(mx, my, z) {
+  const cx = W / 2;
+  const cy = H / 2 + 10;
+  const floorYBack = cy - 50;
+  const floorYFront = cy + 100;
+  const backScale = 0.55;
+  const heightScale = (H - 180) / stageMeters.h;
+  const baseScale = (W - 140) / stageMeters.w;
+  
+  const A = (floorYFront - floorYBack) - z * heightScale * (1.0 - backScale);
+  const B = floorYBack - z * heightScale * backScale;
+  
+  let t = 0.5;
+  if (Math.abs(A) > 0.0001) {
+    t = (my - B) / A;
+  }
+  t = Math.max(-0.5, Math.min(1.5, t));
+  
+  const y = t * stageMeters.d;
+  const scale = backScale + (1.0 - backScale) * t;
+  const x = stageMeters.w / 2 + (mx - cx) / (baseScale * scale);
+  
+  return { x, y };
+}
+
 // Devuelve el punto físico target (X, Y, Z) al que apunta la luz en 3D
 function getPerspFixtureTarget(f) {
   return getFixtureTarget3D(f);
@@ -1799,6 +1978,46 @@ function drawPerspStage() {
   ctx.closePath();
   ctx.fill();
   
+  // Pared Izquierda
+  ctx.fillStyle = '#08080a';
+  ctx.beginPath();
+  ctx.moveTo(fBL.x, fBL.y);
+  ctx.lineTo(cBL.x, cBL.y);
+  ctx.lineTo(cFL.x, cFL.y);
+  ctx.lineTo(fFL.x, fFL.y);
+  ctx.closePath();
+  ctx.fill();
+  
+  // Pared Derecha
+  ctx.fillStyle = '#08080a';
+  ctx.beginPath();
+  ctx.moveTo(fBR.x, fBR.y);
+  ctx.lineTo(cBR.x, cBR.y);
+  ctx.lineTo(cFR.x, cFR.y);
+  ctx.lineTo(fFR.x, fFR.y);
+  ctx.closePath();
+  ctx.fill();
+  
+  // Pared Trasera (Foro)
+  ctx.fillStyle = '#060608';
+  ctx.beginPath();
+  ctx.moveTo(fBL.x, fBL.y);
+  ctx.lineTo(cBL.x, cBL.y);
+  ctx.lineTo(cBR.x, cBR.y);
+  ctx.lineTo(fBR.x, fBR.y);
+  ctx.closePath();
+  ctx.fill();
+  
+  // Techo
+  ctx.fillStyle = '#0b0b0e';
+  ctx.beginPath();
+  ctx.moveTo(cFL.x, cFL.y);
+  ctx.lineTo(cBL.x, cBL.y);
+  ctx.lineTo(cBR.x, cBR.y);
+  ctx.lineTo(cFR.x, cFR.y);
+  ctx.closePath();
+  ctx.fill();
+  
   // Grilla en perspectiva en el piso (cada 1 metro)
   ctx.strokeStyle = 'rgba(255, 255, 255, 0.03)';
   ctx.lineWidth = 1;
@@ -1813,45 +2032,41 @@ function drawPerspStage() {
     ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.stroke();
   }
   
-  // Pared Trasera (Foro)
-  ctx.fillStyle = '#070709';
-  ctx.beginPath();
-  ctx.moveTo(fBL.x, fBL.y);
-  ctx.lineTo(cBL.x, cBL.y);
-  ctx.lineTo(cBR.x, cBR.y);
-  ctx.lineTo(fBR.x, fBR.y);
-  ctx.closePath();
-  ctx.fill();
-  
   // Dibujar contornos del cubo escénico
   ctx.strokeStyle = 'rgba(255, 179, 71, 0.15)';
   ctx.lineWidth = 1;
   ctx.beginPath();
-  // Aristas verticales traseras
+  // Aristas de la pared trasera (Foro)
   ctx.moveTo(fBL.x, fBL.y); ctx.lineTo(cBL.x, cBL.y);
   ctx.moveTo(fBR.x, fBR.y); ctx.lineTo(cBR.x, cBR.y);
-  // Aristas horizontales traseras
   ctx.moveTo(fBL.x, fBL.y); ctx.lineTo(fBR.x, fBR.y);
   ctx.moveTo(cBL.x, cBL.y); ctx.lineTo(cBR.x, cBR.y);
+  // Aristas laterales de techo y piso
+  ctx.moveTo(cBL.x, cBL.y); ctx.lineTo(cFL.x, cFL.y);
+  ctx.moveTo(cBR.x, cBR.y); ctx.lineTo(cFR.x, cFR.y);
+  ctx.moveTo(fBL.x, fBL.y); ctx.lineTo(fFL.x, fFL.y);
+  ctx.moveTo(fBR.x, fBR.y); ctx.lineTo(fFR.x, fFR.y);
   ctx.stroke();
   
-  // Embocadura (Borde frontal)
+  // Embocadura / Marco de Proscenio (Borde frontal completo)
   ctx.strokeStyle = 'rgba(255, 179, 71, 0.6)';
-  ctx.lineWidth = 2;
+  ctx.lineWidth = 2.5;
   ctx.beginPath();
+  // Lado izquierdo
   ctx.moveTo(fFL.x, fFL.y);
+  ctx.lineTo(cFL.x, cFL.y);
+  // Arco superior
+  ctx.lineTo(cFR.x, cFR.y);
+  // Lado derecho
   ctx.lineTo(fFR.x, fFR.y);
   ctx.stroke();
   
-  // 2. Dibujar Varas de iluminación arriba (LX pipes)
+  // 2. Dibujar Varas de iluminación arriba (LX pipes) desde el estado global `varas`
   ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
   ctx.lineWidth = 2.5;
-  const numVaras = 4;
-  for (let i = 1; i <= numVaras; i++) {
-    // Varas distribuidas por profundidad
-    const vy = (stageMeters.d / (numVaras + 1)) * i;
-    const vL = project3D(0.2, vy, stageMeters.h);
-    const vR = project3D(stageMeters.w - 0.2, vy, stageMeters.h);
+  varas.forEach(v => {
+    const vL = project3D(0.2, v.sym, stageMeters.h);
+    const vR = project3D(stageMeters.w - 0.2, v.sym, stageMeters.h);
     
     ctx.beginPath();
     ctx.moveTo(vL.x, vL.y);
@@ -1861,19 +2076,8 @@ function drawPerspStage() {
     ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
     ctx.font = '600 7px Inter';
     ctx.textAlign = 'right';
-    ctx.fillText(`Vara LX ${i}`, vL.x - 6, vL.y + 2.5);
-  }
-  
-  // Vara frontal (fuera de escenario)
-  const vfL = project3D(0.2, stageMeters.d * 1.1, stageMeters.h);
-  const vfR = project3D(stageMeters.w - 0.2, stageMeters.d * 1.1, stageMeters.h);
-  ctx.beginPath();
-  ctx.moveTo(vfL.x, vfL.y);
-  ctx.lineTo(vfR.x, vfR.y);
-  ctx.stroke();
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
-  ctx.textAlign = 'right';
-  ctx.fillText('Vara Frontal', vfL.x - 6, vfL.y + 2.5);
+    ctx.fillText(v.name, vL.x - 6, vL.y + 2.5);
+  });
 
   // 3. Dibujar Calles (Trusses laterales)
   ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
@@ -2145,4 +2349,255 @@ function renderVarasPanel() {
       triggerAutosave();
     });
   });
+}
+
+// ---------- VISTA DE FICHA TÉCNICA (PATCH) ----------
+function renderPatchView() {
+  const container = document.getElementById('patch-view-container');
+  if (!container) return;
+  
+  if (fixtures.length === 0) {
+    container.innerHTML = `
+      <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; color:var(--ink-dim); gap:12px;">
+        <svg viewBox="0 0 24 24" width="48" height="48" stroke="currentColor" stroke-width="1.5" fill="none"><path d="M12 20h9M3 20v-8a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v8M3 10V6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4"/></svg>
+        <span style="font-size:14px; font-weight:500;">No hay focos agregados al escenario</span>
+        <p style="font-size:12px; max-width:280px; text-align:center; margin:0;">Agrega focos desde el catálogo para visualizar la planilla de canales aquí.</p>
+      </div>
+    `;
+    return;
+  }
+  
+  const sorted = [...fixtures].sort((a, b) => (a.channel || 0) - (b.channel || 0));
+  
+  let html = `
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+      <h3 style="font-size:15px; font-weight:600; color:#fff; margin:0;">Planilla de Canales (Patch Técnico)</h3>
+      <button type="button" class="btn btn-outline btn-sm" id="btn-print-patch" style="font-size:11px; padding:4px 8px;">Imprimir Planilla</button>
+    </div>
+    <table class="patch-table" style="width:100%; border-collapse:collapse; text-align:left; font-size:12px; color:#e0e0ea;">
+      <thead>
+        <tr style="border-bottom:1.5px solid var(--border); color:#a0a0b0;">
+          <th style="padding:10px 8px; width:80px;">Canal</th>
+          <th style="padding:10px 8px;">Luminaria</th>
+          <th style="padding:10px 8px;">Montaje/Soporte</th>
+          <th style="padding:10px 8px;">Color / Gel</th>
+          <th style="padding:10px 8px; width:100px;">Dirección DMX</th>
+          <th style="padding:10px 8px;">Propósito / Apuntamiento</th>
+        </tr>
+      </thead>
+      <tbody>
+  `;
+  
+  sorted.forEach(f => {
+    let supportDesc = '';
+    if (f.mountType === 'vara') {
+      const v = varas.find(x => x.id === f.varaId);
+      supportDesc = v ? `${v.name} (Y: ${v.sym.toFixed(1)}m)` : 'Vara LX';
+    } else if (f.mountType === 'calle') {
+      supportDesc = `Calle ${f.sxm < stageMeters.w / 2 ? 'Izquierda' : 'Derecha'}`;
+    } else {
+      supportDesc = `Piso (X: ${f.sxm.toFixed(1)}m, Y: ${f.sym.toFixed(1)}m)`;
+    }
+    
+    let gelLabel = f.gelCode || 'Sin Gel';
+    if (f.type === 'led') {
+      gelLabel = `RGBW (${f.color})`;
+    }
+    
+    html += `
+      <tr style="border-bottom:1px solid rgba(255,255,255,0.05);" data-fix-id="${f.id}">
+        <td style="padding:8px;">
+          <input type="number" class="patch-input patch-channel" value="${f.channel || ''}" placeholder="--" style="width:60px; background:rgba(0,0,0,0.3); border:1px solid var(--border); color:#fff; border-radius:3px; padding:3px 6px; text-align:center; font-size:11px;">
+        </td>
+        <td style="padding:8px; font-weight:500;">${f.name}</td>
+        <td style="padding:8px; color:#a0a0b0;">${supportDesc}</td>
+        <td style="padding:8px;">
+          <span style="display:inline-block; width:12px; height:12px; border-radius:50%; background:${f.color}; vertical-align:middle; margin-right:6px; border:1px solid rgba(255,255,255,0.2);"></span>
+          ${gelLabel}
+        </td>
+        <td style="padding:8px;">
+          <input type="text" class="patch-input patch-dmx" value="${f.dmxAddress || ''}" placeholder="--" style="width:80px; background:rgba(0,0,0,0.3); border:1px solid var(--border); color:#fff; border-radius:3px; padding:3px 6px; text-align:center; font-size:11px;">
+        </td>
+        <td style="padding:8px;">
+          <input type="text" class="patch-input patch-purpose" value="${f.purpose || ''}" placeholder="Puntería del haz..." style="width:100%; background:rgba(0,0,0,0.3); border:1px solid var(--border); color:#fff; border-radius:3px; padding:3px 6px; font-size:11px;">
+        </td>
+      </tr>
+    `;
+  });
+  
+  html += `
+      </tbody>
+    </table>
+  `;
+  
+  container.innerHTML = html;
+  
+  container.querySelectorAll('tr[data-fix-id]').forEach(tr => {
+    const fid = parseInt(tr.dataset.fixId);
+    const f = fixtures.find(x => x.id === fid);
+    if (!f) return;
+    
+    tr.querySelector('.patch-channel').addEventListener('input', e => {
+      f.channel = parseInt(e.target.value) || null;
+      triggerAutosave();
+    });
+    tr.querySelector('.patch-dmx').addEventListener('input', e => {
+      f.dmxAddress = e.target.value;
+      triggerAutosave();
+    });
+    tr.querySelector('.patch-purpose').addEventListener('input', e => {
+      f.purpose = e.target.value;
+      triggerAutosave();
+    });
+  });
+  
+  document.getElementById('btn-print-patch').addEventListener('click', () => {
+    window.print();
+  });
+}
+
+// ---------- GESTIÓN DE ESCENAS (CUES) ----------
+function renderCueList() {
+  const container = document.getElementById('cueList');
+  if (!container) return;
+  
+  if (cues.length === 0) {
+    container.innerHTML = `
+      <div style="text-align:center; padding:24px 8px; color:var(--ink-dim); font-size:11px;">
+        No hay escenas grabadas.<br>Configura la iluminación y presiona "+ Grabar Escena".
+      </div>
+    `;
+    return;
+  }
+  
+  container.innerHTML = '';
+  cues.forEach((cue, index) => {
+    const card = document.createElement('div');
+    card.className = 'fixture-card';
+    card.style = 'padding:10px 12px; display:flex; flex-direction:column; gap:6px; background:rgba(255,255,255,0.02); border:1px solid var(--border); border-radius:4px; margin-bottom:8px; box-sizing:border-box;';
+    
+    card.innerHTML = `
+      <div style="display:flex; justify-content:space-between; align-items:center; width:100%;">
+        <span style="font-weight:600; font-size:12px; color:#fff;">Cue ${index + 1}: ${cue.name}</span>
+        <button type="button" class="btn-delete-cue" data-index="${index}" style="background:none; border:none; color:var(--ink-dim); font-size:16px; cursor:pointer;" title="Eliminar Escena">&times;</button>
+      </div>
+      <div style="font-size:10px; color:var(--ink-dim); display:flex; gap:12px;">
+        <span>${Object.keys(cue.intensities).length} Focos</span>
+        <span>Fade: ${cue.fadeTime}s</span>
+      </div>
+      <div style="display:flex; gap:6px; margin-top:4px; width:100%;">
+        <button type="button" class="btn btn-xs btn-primary play-cue-btn" data-index="${index}" style="flex:1; font-size:10px; padding:3px 6px;">▶ Reproducir</button>
+        <button type="button" class="btn btn-xs btn-outline update-cue-btn" data-index="${index}" style="flex:1; font-size:10px; padding:3px 6px;" title="Sobrescribir con estado actual">Actualizar</button>
+      </div>
+    `;
+    
+    card.querySelector('.play-cue-btn').addEventListener('click', () => {
+      fadeToCue(cue);
+    });
+    
+    card.querySelector('.update-cue-btn').addEventListener('click', () => {
+      showConfirm(
+        '¿Actualizar Escena?',
+        `¿Sobrescribir la escena "${cue.name}" con el estado de luces actual del escenario?`,
+        () => {
+          const intensities = {};
+          const colors = {};
+          fixtures.forEach(f => {
+            intensities[f.id] = f.intensity;
+            colors[f.id] = f.color;
+          });
+          cue.intensities = intensities;
+          cue.colors = colors;
+          cue.fadeTime = parseFloat(document.getElementById('cue-fade-time').value) || 1.5;
+          renderCueList();
+          triggerAutosave();
+        }
+      );
+    });
+    
+    card.querySelector('.btn-delete-cue').addEventListener('click', e => {
+      e.stopPropagation();
+      showConfirm(
+        '¿Eliminar Escena?',
+        `¿Estás seguro de que deseas eliminar la escena "${cue.name}"?`,
+        () => {
+          cues.splice(index, 1);
+          renderCueList();
+          triggerAutosave();
+        }
+      );
+    });
+    
+    container.appendChild(card);
+  });
+}
+
+function fadeToCue(cue) {
+  if (currentFadeInterval) {
+    cancelAnimationFrame(currentFadeInterval);
+  }
+  
+  const durationMs = (parseFloat(document.getElementById('cue-fade-time').value) || cue.fadeTime || 1.5) * 1000;
+  if (durationMs <= 0) {
+    fixtures.forEach(f => {
+      if (cue.intensities[f.id] !== undefined) f.intensity = cue.intensities[f.id];
+      if (cue.colors[f.id] !== undefined) f.color = cue.colors[f.id];
+    });
+    draw();
+    renderFixturePanel();
+    return;
+  }
+  
+  const startTime = performance.now();
+  const startState = fixtures.map(f => ({
+    id: f.id,
+    intensity: f.intensity,
+    rgb: hexToRgb(f.color) || { r: 255, g: 179, b: 71 }
+  }));
+  
+  function updateFade(now) {
+    const elapsed = now - startTime;
+    const progress = Math.min(1.0, elapsed / durationMs);
+    
+    const ease = 0.5 - 0.5 * Math.cos(progress * Math.PI);
+    
+    fixtures.forEach(f => {
+      const start = startState.find(s => s.id === f.id);
+      if (!start) return;
+      
+      const targetIntensity = cue.intensities[f.id] !== undefined ? cue.intensities[f.id] : f.intensity;
+      f.intensity = start.intensity + (targetIntensity - start.intensity) * ease;
+      
+      const targetColorHex = cue.colors[f.id] || f.color;
+      const targetRgb = hexToRgb(targetColorHex) || { r: 255, g: 179, b: 71 };
+      const r = Math.round(start.rgb.r + (targetRgb.r - start.rgb.r) * ease);
+      const g = Math.round(start.rgb.g + (targetRgb.g - start.rgb.g) * ease);
+      const b = Math.round(start.rgb.b + (targetRgb.b - start.rgb.b) * ease);
+      f.color = rgbToHex(r, g, b);
+    });
+    
+    draw();
+    renderFixturePanel();
+    
+    if (progress < 1.0) {
+      currentFadeInterval = requestAnimationFrame(updateFade);
+    } else {
+      currentFadeInterval = null;
+    }
+  }
+  
+  currentFadeInterval = requestAnimationFrame(updateFade);
+}
+
+function hexToRgb(hex) {
+  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  return result ? {
+    r: parseInt(result[1], 16),
+    g: parseInt(result[2], 16),
+    b: parseInt(result[3], 16)
+  } : null;
+}
+
+function rgbToHex(r, g, b) {
+  return "#" + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
 }

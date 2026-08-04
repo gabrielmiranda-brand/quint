@@ -69,11 +69,18 @@
               <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polygon points="12 2 2 22 22 22"/><polyline points="12 2 12 22"/></svg>
               Perspectiva (3D)
             </button>
+            <button type="button" class="view-btn" data-view="patch">
+              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M12 20h9M3 20v-8a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v8M3 10V6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4"/></svg>
+              Ficha Técnica
+            </button>
           </div>
         </div>
         
         <div class="canvas-container">
           <canvas id="stage" width="700" height="460"></canvas>
+          <div id="patch-view-container" style="display:none; width:700px; height:460px; overflow-y:auto; background:#0f0f13; border-radius:4px; padding:16px; border:1px solid var(--border); box-sizing:border-box;">
+            <!-- Contenido generado dinámicamente -->
+          </div>
           <div class="canvas-overlay-tip" id="floor-label">Arrastrá focos, personas u objetos para reubicarlos</div>
         </div>
       </section>
@@ -86,6 +93,7 @@
           <button type="button" class="tab-btn active" data-tab="escena" id="tab-escena-btn">Escenario</button>
           <button type="button" class="tab-btn" data-tab="focos" id="tab-focos-btn">Focos</button>
           <button type="button" class="tab-btn" data-tab="objetos" id="tab-objetos-btn">Objetos</button>
+          <button type="button" class="tab-btn" data-tab="cues" id="tab-cues-btn">Escenas</button>
         </nav>
 
         <!-- Tab Panel: Escenario -->
@@ -163,6 +171,25 @@
           <div class="panel-scroll-area">
             <div class="object-list-container" id="objectList">
               <!-- Objects lists dynamically rendered here -->
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab Panel: Escenas (Cues) -->
+        <div class="tab-content" id="tab-cues">
+          <div class="panel-section-header" style="display:flex; flex-direction:column; gap:8px;">
+            <button type="button" class="btn btn-primary btn-block" id="btn-add-cue" title="Grabar el estado actual de las luces como una escena">
+              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2.5" fill="none"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              + Grabar Escena (Cue)
+            </button>
+            <div style="display:flex; align-items:center; gap:8px; justify-content: space-between;">
+              <span style="font-size:10px; color:var(--ink-dim);">Tiempo de Transición (s):</span>
+              <input type="number" id="cue-fade-time" value="1.5" min="0" max="10" step="0.5" style="width:50px; background:#0f0f13; border:1px solid var(--border); color:#fff; border-radius:3px; padding:2px 4px; font-size:11px; text-align:center;">
+            </div>
+          </div>
+          <div class="panel-scroll-area">
+            <div class="object-list-container" id="cueList" style="display:flex; flex-direction:column; gap:8px; padding-top:4px;">
+              <!-- Escenas renderizadas dinámicamente -->
             </div>
           </div>
         </div>

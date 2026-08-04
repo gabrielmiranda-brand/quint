@@ -3,16 +3,17 @@
 const STORAGE_KEY = 'quint_project_state';
 
 // Guarda el proyecto en localStorage
-export function saveProject(stageMeters, fixtures, objects, varas, projectName = 'Proyecto') {
+export function saveProject(stageMeters, fixtures, objects, varas, cues, projectName = 'Proyecto') {
   try {
     const data = {
-      version: '1.1',
+      version: '1.2',
       timestamp: Date.now(),
       projectName,
       stageMeters,
       fixtures,
       objects,
-      varas
+      varas,
+      cues
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
     return true;
@@ -46,16 +47,17 @@ export function clearProject() {
 }
 
 // Exporta el proyecto actual como un archivo JSON descargable
-export function exportProjectJSON(stageMeters, fixtures, objects, varas, projectName = 'Planta_Luces') {
+export function exportProjectJSON(stageMeters, fixtures, objects, varas, cues, projectName = 'Planta_Luces') {
   const data = {
     appName: 'Quint',
-    version: '1.1',
+    version: '1.2',
     timestamp: Date.now(),
     projectName,
     stageMeters,
     fixtures,
     objects,
-    varas
+    varas,
+    cues
   };
 
   const jsonString = JSON.stringify(data, null, 2);
@@ -99,6 +101,7 @@ export function importProjectJSON(file) {
           fixtures: parsed.fixtures,
           objects: parsed.objects,
           varas: Array.isArray(parsed.varas) ? parsed.varas : null,
+          cues: Array.isArray(parsed.cues) ? parsed.cues : [],
           projectName: parsed.projectName || 'Proyecto Importado'
         });
       } catch (err) {
