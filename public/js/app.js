@@ -24,6 +24,17 @@ let dragTarget = null;
 let dragOffset = { x: 0, y: 0 };
 let projectName = 'Mi Planta de Luces';
 let stageMeters = { w: 8, d: 6, h: 7 };
+let varas = [];
+
+function getDefaultVaras() {
+  return [
+    { id: 1, name: 'Vara Frontal (FOH)', sym: 6.5, isFrontal: true },
+    { id: 2, name: 'Vara LX 1', sym: 5.0, isFrontal: false },
+    { id: 3, name: 'Vara LX 2', sym: 3.5, isFrontal: false },
+    { id: 4, name: 'Vara LX 3', sym: 2.0, isFrontal: false },
+    { id: 5, name: 'Vara LX 4', sym: 0.5, isFrontal: false }
+  ];
+}
 
 const MARGIN = 44;
 let strobePhase = true;
@@ -45,6 +56,7 @@ function initApp() {
     fixtures = savedState.fixtures;
     objects = savedState.objects;
     projectName = savedState.projectName || 'Mi Planta de Luces';
+    varas = savedState.varas || getDefaultVaras();
     
     // Asegurar que el idCounter no colisione
     const maxFixtureId = fixtures.reduce((max, f) => f.id > max ? f.id : max, 0);
@@ -65,6 +77,7 @@ function initApp() {
   document.getElementById('stageH').value = stageMeters.h;
   
   updateSaveStatus('saved');
+  renderVarasPanel();
   renderFixturePanel();
   renderObjectPanel();
   draw();
@@ -82,6 +95,8 @@ function initApp() {
 function loadDefaultScene() {
   projectName = 'Ejemplo de Escena';
   stageMeters = { w: 8, d: 6, h: 7 };
+  varas = getDefaultVaras();
+  
   fixtures = [
     {
       id: idCounter++,
@@ -90,9 +105,13 @@ function loadDefaultScene() {
       name: 'PAR LED 18x10W RGBW 1',
       type: 'led',
       subType: 'wash',
+      mountType: 'vara',
+      varaId: 4, // Vara LX 3 (sym: 2.0)
       sxm: 2.5,
-      sym: 1.5,
-      height: 5.0,
+      sym: 2.0,
+      height: 7.0,
+      pan: 0,
+      tilt: 25,
       dir: 'frente',
       beamAngle: 25,
       color: '#ff3b3b',
@@ -106,9 +125,13 @@ function loadDefaultScene() {
       name: 'PAR LED 18x10W RGBW 2',
       type: 'led',
       subType: 'wash',
+      mountType: 'vara',
+      varaId: 4, // Vara LX 3 (sym: 2.0)
       sxm: 5.5,
-      sym: 1.5,
-      height: 5.0,
+      sym: 2.0,
+      height: 7.0,
+      pan: 0,
+      tilt: 25,
       dir: 'frente',
       beamAngle: 25,
       color: '#3bff6e',
@@ -122,9 +145,13 @@ function loadDefaultScene() {
       name: 'Elipsoidal Source Four (Recorte)',
       type: 'conventional',
       subType: 'spot',
-      sxm: 4,
-      sym: 5.2,
-      height: 5.5,
+      mountType: 'vara',
+      varaId: 2, // Vara LX 1 (sym: 5.0)
+      sxm: 4.0,
+      sym: 5.0,
+      height: 7.0,
+      pan: 180,
+      tilt: 35,
       dir: 'contra',
       beamAngle: 26,
       color: '#2000aa', // Congo Blue gel
@@ -140,12 +167,15 @@ function loadDefaultScene() {
       name: 'Fresnel 1000W Frente',
       type: 'conventional',
       subType: 'wash',
+      mountType: 'calle',
       sxm: 0.3,
-      sym: 3,
+      sym: 3.0,
       height: 1.8,
+      pan: 90,
+      tilt: 45,
       dir: 'calle-izq',
       beamAngle: 35,
-      color: '#ffb347', // Sin gel (tungsteno directo)
+      color: '#ffb347', // Sin gel
       gelId: 'none',
       gelCode: 'Sin Gel',
       intensity: 75,
@@ -234,41 +264,66 @@ function getElevFixturePos(f) {
   return { x, y, scale, floorY };
 }
 
+function getFixtureTarget3D(f) {
+  // Convertir ángulos pan/tilt a radianes
+  // pan va de -180 a 180 (0 apunta al frente/platea, +90 derecha, -90 izquierda)
+  // tilt va de 0 (cenital apuntando abajo) a 90 (horizontal)
+  const panRad = (f.pan || 0) * Math.PI / 180;
+  const tiltRad = (f.tilt || 0) * Math.PI / 180;
+  
+  const isUpward = (f.mountType === 'piso');
+  
+  // Componentes del vector de dirección en 3D
+  // Eje X: ancho (derecha positivo)
+  // Eje Y: profundidad (0 fondo, d frente). 0 pan apunta hacia la platea (+Y).
+  // Eje Z: altura (arriba positivo).
+  const dx = Math.sin(panRad) * Math.sin(tiltRad);
+  const dy = -Math.cos(panRad) * Math.sin(tiltRad);
+  const dz = isUpward ? Math.cos(tiltRad) : -Math.cos(tiltRad);
+  
+  // Plano target (suelo Z=0 o techo Z=stageMeters.h)
+  const targetZ = isUpward ? stageMeters.h : 0;
+  const distZ = Math.abs(f.height - targetZ);
+  
+  if (Math.abs(dz) < 0.001) {
+    return { x: f.sxm, y: f.sym, z: targetZ };
+  }
+  
+  const t = distZ / Math.abs(dz);
+  let tx = f.sxm + dx * t;
+  let ty = f.sym + dy * t;
+  
+  // Limitar para evitar proyección al infinito
+  tx = Math.max(-5, Math.min(stageMeters.w + 5, tx));
+  ty = Math.max(-5, Math.min(stageMeters.d + 5, ty));
+  
+  return { x: tx, y: ty, z: targetZ };
+}
+
 function beamTriangle(f) {
   const { x: apexX, y: apexY, scale, floorY } = getElevFixturePos(f);
   const e = elevRect();
   
-  if (isCalle(f)) {
-    const depthPercent = f.sym / stageMeters.d;
-    const s = 0.7 + 0.3 * depthPercent;
-    // La calle cruza horizontalmente hasta el lado opuesto
-    const farX = e.x + (stageMeters.w / 2) * e.scaleX + ((f.dir === 'calle-izq' ? stageMeters.w : 0) - stageMeters.w / 2) * e.scaleX * s;
-    const halfSpreadPx = stageMeters.w * Math.tan(f.beamAngle * Math.PI / 180) * e.scaleY * s;
-    return { 
-      apex: { x: apexX, y: apexY }, 
-      p1: { x: farX, y: apexY - halfSpreadPx }, 
-      p2: { x: farX, y: apexY + halfSpreadPx } 
-    };
-  }
+  const target3D = getFixtureTarget3D(f);
+  const depthPercent = target3D.y / stageMeters.d;
+  const s = 0.7 + 0.3 * depthPercent;
+  const targetFloorY = e.floorY - (1 - depthPercent) * 40;
   
-  if (f.dir === 'piso') {
-    // Proyector de piso apunta hacia arriba (nadir/supina)
-    const ceilingY = floorY - stageMeters.h * e.scaleY * scale;
-    const spreadM = (stageMeters.h - f.height) * Math.tan(f.beamAngle * Math.PI / 180);
-    const halfWpx = spreadM * e.scaleX * scale;
-    return {
-      apex: { x: apexX, y: apexY },
-      p1: { x: apexX - halfWpx, y: ceilingY },
-      p2: { x: apexX + halfWpx, y: ceilingY }
-    };
-  }
+  const centerX = e.x + (stageMeters.w / 2) * e.scaleX;
+  const targetScreenX = centerX + (target3D.x - stageMeters.w / 2) * e.scaleX * s;
   
-  const halfWm = f.height * Math.tan(f.beamAngle * Math.PI / 180);
-  const halfWpx = halfWm * e.scaleX * scale;
-  return { 
-    apex: { x: apexX, y: apexY }, 
-    p1: { x: apexX - halfWpx, y: floorY }, 
-    p2: { x: apexX + halfWpx, y: floorY } 
+  const targetScreenY = (f.mountType === 'piso') 
+    ? targetFloorY - stageMeters.h * e.scaleY * s
+    : targetFloorY;
+    
+  const distZ = Math.abs(f.height - target3D.z);
+  const spreadM = distZ * Math.tan(f.beamAngle * Math.PI / 180);
+  const halfWpx = spreadM * e.scaleX * s;
+  
+  return {
+    apex: { x: apexX, y: apexY },
+    p1: { x: targetScreenX - halfWpx, y: targetScreenY },
+    p2: { x: targetScreenX + halfWpx, y: targetScreenY }
   };
 }
 
@@ -307,9 +362,27 @@ function drawPlanFloor() {
   ctx.strokeRect(r.x, r.y, r.w, r.h);
   ctx.setLineDash([]);
   
+  // Dibujar Varas LX horizontales en planta
+  varas.forEach((v, idx) => {
+    const yPx = r.y + v.sym * r.scale;
+    ctx.strokeStyle = 'rgba(255, 230, 71, 0.4)';
+    ctx.lineWidth = 2.0;
+    ctx.beginPath();
+    ctx.moveTo(r.x, yPx);
+    ctx.lineTo(r.x + r.w, yPx);
+    ctx.stroke();
+    
+    // Etiqueta de la vara
+    ctx.fillStyle = 'rgba(255, 230, 71, 0.7)';
+    ctx.font = '600 7px Inter';
+    ctx.textAlign = 'right';
+    ctx.fillText(v.name, r.x - 6, yPx + 2.5);
+  });
+  
   // Texto descriptivo
   ctx.fillStyle = 'rgba(255, 179, 71, 0.8)';
   ctx.font = '600 10px Inter';
+  ctx.textAlign = 'left';
   ctx.fillText(`ESCENARIO: ${stageMeters.w.toFixed(1)}m x ${stageMeters.d.toFixed(1)}m · VISTA DE PLANTA`, r.x + 8, r.y - 8);
 }
 
@@ -318,23 +391,40 @@ function composePlanLight() {
   pctx.globalCompositeOperation = 'lighter';
   
   fixtures.forEach(f => {
-    if (f.strobe && !strobePhase) return;
-    const { r, g, b } = hexToRgb(f.color);
-    const p = planPixel(f.sxm, f.sym);
+    const { r: r_rgb, g: g_rgb, b: b_rgb } = hexToRgb(f.color);
     
-    // El radio de cobertura crece según el ángulo de haz y la altura
-    const rad = 25 + f.beamAngle * 4;
-    const alpha = (f.intensity / 100) * (isOnstagePlan(f.sxm, f.sym) ? 1 : 0.3);
+    // Calcular target y píxeles en planta
+    const target3D = getFixtureTarget3D(f);
+    const pTarget = planPixel(target3D.x, target3D.y);
+    const pFixture = planPixel(f.sxm, f.sym);
     
-    const grad = pctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, rad);
-    grad.addColorStop(0, `rgba(${r},${g},${b},${alpha})`);
-    grad.addColorStop(0.5, `rgba(${r},${g},${b},${alpha * 0.4})`);
-    grad.addColorStop(1, `rgba(${r},${g},${b},0)`);
+    // El radio de cobertura en metros depende de la distancia y el ángulo
+    const distZ = Math.abs(f.height - target3D.z);
+    const radM = distZ * Math.tan(f.beamAngle * Math.PI / 180);
+    const r = planRect();
+    const radPx = Math.max(8, radM * r.scale);
+    
+    const alpha = (f.intensity / 100) * (isOnstagePlan(target3D.x, target3D.y) ? 1.0 : 0.3);
+    
+    const grad = pctx.createRadialGradient(pTarget.x, pTarget.y, 0, pTarget.x, pTarget.y, radPx);
+    grad.addColorStop(0, `rgba(${r_rgb},${g_rgb},${b_rgb},${alpha * 0.95})`);
+    grad.addColorStop(0.5, `rgba(${r_rgb},${g_rgb},${b_rgb},${alpha * 0.3})`);
+    grad.addColorStop(1, `rgba(${r_rgb},${g_rgb},${b_rgb},0)`);
     
     pctx.fillStyle = grad;
     pctx.beginPath();
-    pctx.arc(p.x, p.y, rad, 0, Math.PI * 2);
+    pctx.arc(pTarget.x, pTarget.y, radPx, 0, Math.PI * 2);
     pctx.fill();
+    
+    // Dibujar línea indicadora de dirección de haz (foco -> target)
+    pctx.strokeStyle = `rgba(${r_rgb},${g_rgb},${b_rgb},${alpha * 0.35})`;
+    pctx.lineWidth = 1;
+    pctx.setLineDash([3, 3]);
+    pctx.beginPath();
+    pctx.moveTo(pFixture.x, pFixture.y);
+    pctx.lineTo(pTarget.x, pTarget.y);
+    pctx.stroke();
+    pctx.setLineDash([]);
   });
 }
 
@@ -518,7 +608,8 @@ function drawElevFixtureBody(f) {
   ctx.fillStyle = isSelected ? '#ffffff' : 'rgba(255, 255, 255, 0.4)';
   ctx.font = `${isSelected ? 'bold' : 'normal'} ${8 * scale}px Inter`;
   ctx.textAlign = 'center';
-  ctx.fillText(`${dirLabel[f.dir]} ${f.id}`, apexX, apexY - 12 * scale);
+  const label = f.mountType === 'vara' ? 'VARA' : f.mountType === 'calle' ? 'CALLE' : 'PISO';
+  ctx.fillText(`${label} ${f.id}`, apexX, apexY - 12 * scale);
   
   // Dibujar asas de ajuste de ángulo si está seleccionado
   if (isSelected) {
@@ -531,6 +622,56 @@ function drawElevFixtureBody(f) {
       ctx.stroke();
     });
   }
+}
+
+function calculateObjectLighting(o) {
+  const front = { r: 0, g: 0, b: 0 };
+  const back = { r: 0, g: 0, b: 0 };
+  
+  fixtures.forEach(f => {
+    // Vector desde la luz hasta el objeto (Z=0 del objeto en el suelo)
+    const dx = o.sxm - f.sxm;
+    const dy = o.sym - f.sym;
+    const dz = 0 - f.height;
+    const dist = Math.hypot(dx, dy, dz);
+    if (dist < 0.1) return;
+    
+    // Dirección del haz de luz
+    const target3D = getFixtureTarget3D(f);
+    const tdx = target3D.x - f.sxm;
+    const tdy = target3D.y - f.sym;
+    const tdz = target3D.z - f.height;
+    
+    // Calcular ángulo entre la dirección del haz y la dirección al objeto
+    const dot = dx * tdx + dy * tdy + dz * tdz;
+    const len1 = dist;
+    const len2 = Math.hypot(tdx, tdy, tdz);
+    if (len2 < 0.1) return;
+    
+    const cosTheta = dot / (len1 * len2);
+    const theta = Math.acos(Math.max(-1, Math.min(1, cosTheta)));
+    
+    // Si cae dentro del cono del haz
+    const halfAngleRad = (f.beamAngle / 2) * Math.PI / 180;
+    if (theta <= halfAngleRad) {
+      const { r, g, b } = hexToRgb(f.color);
+      // Atenuación cuadrática suave por distancia
+      const factor = (f.intensity / 100) * Math.max(0, 1 - (dist / 12));
+      
+      // Si la luz viene de adelante (downstage de la persona, Y mayor)
+      if (f.sym > o.sym) {
+        front.r += r * factor;
+        front.g += g * factor;
+        front.b += b * factor;
+      } else {
+        back.r += r * factor;
+        back.g += g * factor;
+        back.b += b * factor;
+      }
+    }
+  });
+  
+  return { front, back };
 }
 
 function drawElevObject(o) {
@@ -581,6 +722,14 @@ function drawElevObject(o) {
 function drawElevView() {
   drawElevFloor();
   
+  const e = elevRect();
+  ctx.save();
+  
+  // Clip para que las luces no traspasen el piso de la elevación (y <= e.floorY)
+  ctx.beginPath();
+  ctx.rect(0, 0, W, e.floorY);
+  ctx.clip();
+  
   // Coleccionar todos los elementos dibujables en elevación
   const items = [];
   fixtures.forEach(f => {
@@ -616,7 +765,7 @@ function drawElevView() {
     }
   });
   
-  // Restablecer composite
+  ctx.restore();
   ctx.globalCompositeOperation = 'source-over';
 }
 
@@ -691,7 +840,21 @@ canvas.addEventListener('mousedown', e => {
   const mx = e.clientX - rect.left;
   const my = e.clientY - rect.top;
   
-  // 1. Verificar si arrastra asas de haz en elevación
+  // 1. En vista de Planta, verificar si arrastra Varas LX
+  if (currentView === 'plan') {
+    const r = planRect();
+    for (let i = 0; i < varas.length; i++) {
+      const v = varas[i];
+      const yPx = r.y + v.sym * r.scale;
+      if (Math.abs(my - yPx) < 7) {
+        dragTarget = { kind: 'vara', id: v.id, index: i };
+        dragOffset = { x: 0, y: yPx - my };
+        return;
+      }
+    }
+  }
+  
+  // 2. Verificar si arrastra asas de haz en elevación
   if (currentView === 'elev' && selectedFixtureId !== null) {
     const f = fixtures.find(f => f.id === selectedFixtureId);
     if (f) {
@@ -701,7 +864,7 @@ canvas.addEventListener('mousedown', e => {
     }
   }
   
-  // 2. Verificar si hace click en objetos
+  // 3. Verificar si hace click en objetos
   for (let i = objects.length - 1; i >= 0; i--) {
     const o = objects[i];
     const p = currentView === 'plan' ? planPixel(o.sxm, o.sym) : getElevObjectPos(o);
@@ -713,7 +876,7 @@ canvas.addEventListener('mousedown', e => {
     }
   }
   
-  // 3. Verificar si hace click en focos
+  // 4. Verificar si hace click en focos
   for (let i = fixtures.length - 1; i >= 0; i--) {
     const f = fixtures[i];
     const p = currentView === 'plan' ? planPixel(f.sxm, f.sym) : getElevFixturePos(f);
@@ -757,12 +920,45 @@ canvas.addEventListener('mousemove', e => {
     return;
   }
   
+  if (dragTarget.kind === 'vara') {
+    const r = planRect();
+    const idx = dragTarget.index;
+    const sym = (my + dragOffset.y - r.y) / r.scale;
+    const clampedSym = Math.max(0.1, Math.min(stageMeters.d - 0.1, sym));
+    varas[idx].sym = clampedSym;
+    
+    // Sincronizar todos los focos montados en esta vara
+    fixtures.forEach(f => {
+      if (f.mountType === 'vara' && f.varaId === varas[idx].id) {
+        f.sym = clampedSym;
+      }
+    });
+    
+    renderVarasPanel();
+    renderFixturePanel();
+    draw();
+    triggerAutosave();
+    return;
+  }
+
   if (dragTarget.kind === 'fixture') {
     const f = fixtures.find(f => f.id === dragTarget.id);
     if (currentView === 'plan') {
       const m = planMeters(mx + dragOffset.x, my + dragOffset.y);
-      f.sxm = Math.max(-1, Math.min(stageMeters.w + 1, m.sxm));
-      f.sym = Math.max(-1, Math.min(stageMeters.d + 1, m.sym));
+      if (f.mountType === 'vara') {
+        f.sxm = Math.max(0.1, Math.min(stageMeters.w - 0.1, m.sxm));
+        // f.sym está bloqueado por la profundidad de la vara
+        const targetVara = varas.find(v => v.id === f.varaId);
+        if (targetVara) f.sym = targetVara.sym;
+      } else if (f.mountType === 'calle') {
+        f.sym = Math.max(0.1, Math.min(stageMeters.d - 0.1, m.sym));
+        // f.sxm está bloqueado por el extremo
+        f.sxm = f.sxm < stageMeters.w / 2 ? 0 : stageMeters.w;
+      } else {
+        // Piso libre
+        f.sxm = Math.max(0.1, Math.min(stageMeters.w - 0.1, m.sxm));
+        f.sym = Math.max(0.1, Math.min(stageMeters.d - 0.1, m.sym));
+      }
     } else {
       const er = elevRect();
       const centerX = er.x + (stageMeters.w / 2) * er.scaleX;
@@ -770,10 +966,17 @@ canvas.addEventListener('mousemove', e => {
       const scale = 0.7 + 0.3 * depthPercent;
       const floorY = er.floorY - (1 - depthPercent) * 40;
       
-      if (isCalle(f)) {
+      if (f.mountType === 'vara') {
+        f.sxm = (mx + dragOffset.x - centerX) / (er.scaleX * scale) + stageMeters.w / 2;
+        f.sxm = Math.max(0, Math.min(stageMeters.w, f.sxm));
+        f.height = stageMeters.h; // bloqueado a techo
+      } else if (f.mountType === 'piso') {
+        f.sxm = (mx + dragOffset.x - centerX) / (er.scaleX * scale) + stageMeters.w / 2;
+        f.sxm = Math.max(0, Math.min(stageMeters.w, f.sxm));
+        f.height = 0.2; // bloqueado a suelo
+      } else if (f.mountType === 'calle') {
         f.height = (floorY - (my + dragOffset.y)) / (er.scaleY * scale);
         f.height = Math.max(0.5, Math.min(stageMeters.h, f.height));
-        f.dir = (mx + dragOffset.x) < centerX ? 'calle-izq' : 'calle-der';
       } else {
         f.sxm = (mx + dragOffset.x - centerX) / (er.scaleX * scale) + stageMeters.w / 2;
         f.sxm = Math.max(0, Math.min(stageMeters.w, f.sxm));
@@ -845,16 +1048,19 @@ function renderCatalog() {
 
 function addFixtureFromCatalog(modelId) {
   const defaults = getFixtureDefaults(modelId);
-  const angle = (idCounter * 53) % 360;
+  const targetVara = varas.find(v => !v.isFrontal) || varas[0];
   
   const f = {
     id: idCounter++,
     kind: 'fixture',
     ...defaults,
-    // Posición por defecto dispersa en escenario
-    sxm: stageMeters.w / 2 + Math.cos(angle * Math.PI / 180) * 1.5,
-    sym: stageMeters.d / 2 + Math.sin(angle * Math.PI / 180) * 1.0,
-    height: defaults.type === 'conventional' ? 5.0 : 4.5,
+    mountType: 'vara',
+    varaId: targetVara ? targetVara.id : 1,
+    sxm: stageMeters.w / 2,
+    sym: targetVara ? targetVara.sym : 3.0,
+    height: stageMeters.h,
+    pan: 0,
+    tilt: 35,
     dir: 'frente'
   };
   
@@ -903,7 +1109,7 @@ function setupEventListeners() {
 
   // Importación/Exportación JSON
   document.getElementById('json-export-btn').addEventListener('click', () => {
-    exportProjectJSON(stageMeters, fixtures, objects, projectName);
+    exportProjectJSON(stageMeters, fixtures, objects, varas, projectName);
   });
   document.getElementById('json-import-input').addEventListener('change', e => {
     if (e.target.files.length === 0) return;
@@ -913,6 +1119,7 @@ function setupEventListeners() {
         fixtures = res.fixtures;
         objects = res.objects;
         projectName = res.projectName;
+        varas = res.varas || getDefaultVaras();
         
         // Sincronizar UI
         document.getElementById('project-name-input').value = projectName;
@@ -923,6 +1130,7 @@ function setupEventListeners() {
         if (fixtures.length > 0) selectedFixtureId = fixtures[0].id;
         else selectedFixtureId = null;
         
+        renderVarasPanel();
         renderFixturePanel();
         renderObjectPanel();
         draw();
@@ -983,6 +1191,7 @@ function setupEventListeners() {
         document.getElementById('project-name-input').value = projectName;
         updateStageInputs();
         
+        renderVarasPanel();
         renderFixturePanel();
         renderObjectPanel();
         draw();
@@ -1015,6 +1224,23 @@ function setupEventListeners() {
   // Agregar Objetos
   document.getElementById('addPersonBtn').addEventListener('click', () => addObject('persona'));
   document.getElementById('addPropBtn').addEventListener('click', () => addObject('objeto'));
+
+  // Agregar Varas LX
+  document.getElementById('btn-add-vara').addEventListener('click', () => {
+    const nonFrontalVaras = varas.filter(v => !v.isFrontal);
+    const nextNum = nonFrontalVaras.length + 1;
+    const newVara = {
+      id: Math.max(...varas.map(v => v.id), 0) + 1,
+      name: `Vara LX ${nextNum}`,
+      sym: Math.max(0.2, stageMeters.d - 1.0 - (nextNum * 0.8)),
+      isFrontal: false
+    };
+    newVara.sym = Math.max(0.1, Math.min(stageMeters.d - 0.1, newVara.sym));
+    varas.push(newVara);
+    renderVarasPanel();
+    draw();
+    triggerAutosave();
+  });
 }
 
 function updateStageInputs() {
@@ -1075,7 +1301,7 @@ function triggerAutosave() {
   if (saveTimeout) clearTimeout(saveTimeout);
   
   saveTimeout = setTimeout(() => {
-    const success = saveProject(stageMeters, fixtures, objects, projectName);
+    const success = saveProject(stageMeters, fixtures, objects, varas, projectName);
     updateSaveStatus(success ? 'saved' : 'error');
   }, 1000);
 }
@@ -1106,6 +1332,19 @@ function renderFixturePanel() {
   }
   
   fixtures.forEach(f => {
+    // Si no tiene definido mountType por compatibilidad
+    if (!f.mountType) {
+      if (f.dir && f.dir.startsWith('calle')) f.mountType = 'calle';
+      else if (f.dir === 'piso') f.mountType = 'piso';
+      else f.mountType = 'vara';
+    }
+    if (f.mountType === 'vara' && !f.varaId) {
+      const targetVara = varas[0];
+      f.varaId = targetVara ? targetVara.id : 1;
+    }
+    if (f.pan === undefined) f.pan = 0;
+    if (f.tilt === undefined) f.tilt = 35;
+    
     const isSelected = f.id === selectedFixtureId;
     const card = document.createElement('div');
     card.className = `fixture-card ${isSelected ? 'selected' : ''}`;
@@ -1114,7 +1353,6 @@ function renderFixturePanel() {
     // Generar bloque de color: mezclador RGB o lista de Geles
     let colorControlHTML = '';
     if (f.type === 'conventional') {
-      // Proyector tradicional con filtros Gel
       let gelOptions = GELS.map(g => `
         <option value="${g.id}" ${f.gelId === g.id ? 'selected' : ''}>
           [${g.code}] ${g.name}
@@ -1130,12 +1368,69 @@ function renderFixturePanel() {
         </div>
       `;
     } else {
-      // Proyector LED inteligente con mezclador RGB
       colorControlHTML = `
         <div class="color-picker-row">
           <label>Color Luz</label>
           <input type="color" value="${f.color}" data-color-picker="${f.id}">
           <span style="font-size:10px;color:var(--ink-dim)">RGB Inteligente</span>
+        </div>
+      `;
+    }
+
+    // Lógica condicional de soportes
+    let supportControlsHTML = '';
+    if (f.mountType === 'vara') {
+      const targetVara = varas.find(v => v.id === f.varaId) || varas[0];
+      supportControlsHTML = `
+        <div class="range-group">
+          <label>Vara LX</label>
+          <select data-vara-assign="${f.id}" style="flex:1;padding:4px 6px;font-size:11px;">
+            ${varas.map(v => `<option value="${v.id}" ${f.varaId === v.id ? 'selected' : ''}>${v.name}</option>`).join('')}
+          </select>
+        </div>
+        <div class="range-group">
+          <label>Posición en Vara</label>
+          <input type="range" min="0.1" max="${stageMeters.w - 0.1}" step="0.1" value="${f.sxm.toFixed(1)}" data-vara-pos-range="${f.id}">
+          <span class="range-value">${f.sxm.toFixed(1)}m</span>
+        </div>
+        <div style="font-size: 10px; color: var(--ink-dim); padding-top: 2px;">
+          * Altura fija a parrilla (${stageMeters.h.toFixed(1)}m). Profundidad Y (${targetVara ? targetVara.sym.toFixed(1) : 0}m) ligada a Vara.
+        </div>
+      `;
+    } else if (f.mountType === 'calle') {
+      supportControlsHTML = `
+        <div class="range-group">
+          <label>Extremo Lateral</label>
+          <select data-side-select="${f.id}" style="flex:1;padding:4px 6px;font-size:11px;">
+            <option value="izq" ${f.sxm < stageMeters.w / 2 ? 'selected' : ''}>Izquierda</option>
+            <option value="der" ${f.sxm >= stageMeters.w / 2 ? 'selected' : ''}>Derecha</option>
+          </select>
+        </div>
+        <div class="range-group">
+          <label>Profundidad (Y)</label>
+          <input type="range" min="0.1" max="${stageMeters.d - 0.1}" step="0.1" value="${f.sym.toFixed(1)}" data-calle-depth-range="${f.id}">
+          <span class="range-value">${f.sym.toFixed(1)}m</span>
+        </div>
+        <div class="range-group">
+          <label>Altura (Z)</label>
+          <input type="range" min="0.5" max="${stageMeters.h}" step="0.1" value="${f.height.toFixed(1)}" data-calle-height-range="${f.id}">
+          <span class="range-value">${f.height.toFixed(1)}m</span>
+        </div>
+      `;
+    } else { // piso
+      supportControlsHTML = `
+        <div class="range-group">
+          <label>Posición X</label>
+          <input type="range" min="0.1" max="${stageMeters.w - 0.1}" step="0.1" value="${f.sxm.toFixed(1)}" data-piso-x-range="${f.id}">
+          <span class="range-value">${f.sxm.toFixed(1)}m</span>
+        </div>
+        <div class="range-group">
+          <label>Posición Y</label>
+          <input type="range" min="0.1" max="${stageMeters.d - 0.1}" step="0.1" value="${f.sym.toFixed(1)}" data-piso-y-range="${f.id}">
+          <span class="range-value">${f.sym.toFixed(1)}m</span>
+        </div>
+        <div style="font-size: 10px; color: var(--ink-dim); padding-top: 2px;">
+          * Altura fija a ras de piso (0.2m).
         </div>
       `;
     }
@@ -1150,22 +1445,35 @@ function renderFixturePanel() {
       </div>
       
       <div class="fixture-card-meta">
-        <span>Dir: ${dirLabel[f.dir]}</span>
+        <span>Montaje: ${f.mountType === 'vara' ? 'VARA' : f.mountType === 'calle' ? 'CALLE' : 'PISO'}</span>
         <span>Apertura: ${Math.round(f.beamAngle)}°</span>
       </div>
       
       ${isSelected ? `
       <div class="fixture-card-controls">
         <div class="range-group">
-          <label>Dirección</label>
-          <select data-dir-select="${f.id}" style="flex:1;padding:4px 6px;font-size:11px;">
-            <option value="frente" ${f.dir === 'frente' ? 'selected' : ''}>Frente</option>
-            <option value="contra" ${f.dir === 'contra' ? 'selected' : ''}>Contra</option>
-            <option value="calle-izq" ${f.dir === 'calle-izq' ? 'selected' : ''}>Calle Izq.</option>
-            <option value="calle-der" ${f.dir === 'calle-der' ? 'selected' : ''}>Calle Der.</option>
-            <option value="cenital" ${f.dir === 'cenital' ? 'selected' : ''}>Cenital (Vara)</option>
-            <option value="piso" ${f.dir === 'piso' ? 'selected' : ''}>Razante (Piso)</option>
+          <label>Soporte</label>
+          <select data-mount-select="${f.id}" style="flex:1;padding:4px 6px;font-size:11px;font-weight:600;">
+            <option value="vara" ${f.mountType === 'vara' ? 'selected' : ''}>Vara LX (Colgado)</option>
+            <option value="calle" ${f.mountType === 'calle' ? 'selected' : ''}>Calle Lateral (Truss)</option>
+            <option value="piso" ${f.mountType === 'piso' ? 'selected' : ''}>Sobre Piso (De Suelo)</option>
           </select>
+        </div>
+        
+        ${supportControlsHTML}
+        
+        <hr style="border:0;border-top:1px solid var(--border);margin:8px 0;">
+        
+        <div class="range-group">
+          <label>Giro (Pan)</label>
+          <input type="range" min="-180" max="180" step="5" value="${Math.round(f.pan || 0)}" data-pan-range="${f.id}">
+          <span class="range-value">${Math.round(f.pan || 0)}°</span>
+        </div>
+        
+        <div class="range-group">
+          <label>Pivote (Tilt)</label>
+          <input type="range" min="0" max="90" step="5" value="${Math.round(f.tilt || 0)}" data-tilt-range="${f.id}">
+          <span class="range-value">${Math.round(f.tilt || 0)}°</span>
         </div>
         
         ${colorControlHTML}
@@ -1177,26 +1485,14 @@ function renderFixturePanel() {
         </div>
         
         <div class="range-group">
-          <label>Altura</label>
-          <input type="range" min="0.5" max="${stageMeters.h}" step="0.1" value="${f.height.toFixed(1)}" data-height-range="${f.id}">
-          <span class="range-value">${f.height.toFixed(1)}m</span>
-        </div>
-        
-        <div class="range-group">
           <label>Zoom/Haz</label>
           <input type="range" min="${f.minAngle || 2}" max="${f.maxAngle || 70}" value="${Math.round(f.beamAngle)}" data-angle-range="${f.id}">
           <span class="range-value">${Math.round(f.beamAngle)}°</span>
-        </div>
-        
-        <div class="range-group" style="justify-content: space-between;">
-          <span style="font-size: 11px; color: var(--ink-dim);">Estrobo</span>
-          <button type="button" class="toggle-btn ${f.strobe ? 'on' : ''}" data-strobe-btn="${f.id}">${f.strobe ? 'ON' : 'OFF'}</button>
         </div>
       </div>
       ` : ''}
     `;
     
-    // Seleccionar tarjeta si se hace click en el contenedor (pero no en sus inputs)
     card.addEventListener('click', e => {
       if (e.target.closest('input, select, button')) return;
       selectedFixtureId = f.id;
@@ -1207,7 +1503,6 @@ function renderFixturePanel() {
     list.appendChild(card);
   });
   
-  // Asignar controladores de eventos en el panel
   list.querySelectorAll('[data-del-btn]').forEach(btn => {
     btn.addEventListener('click', e => {
       const fid = parseInt(e.target.dataset.delBtn);
@@ -1221,34 +1516,126 @@ function renderFixturePanel() {
     });
   });
   
-  list.querySelectorAll('[data-dir-select]').forEach(select => {
+  list.querySelectorAll('[data-mount-select]').forEach(select => {
     select.addEventListener('change', e => {
-      const f = fixtures.find(f => f.id === parseInt(e.target.dataset.dirSelect));
-      f.dir = e.target.value;
-      
-      // Ajustar alturas por defecto si se reasigna a una calle (1.8m)
-      if (f.dir.startsWith('calle')) {
+      const f = fixtures.find(f => f.id === parseInt(e.target.dataset.mountSelect));
+      f.mountType = e.target.value;
+      if (f.mountType === 'vara') {
+        const targetVara = varas[0];
+        f.varaId = targetVara ? targetVara.id : 1;
+        f.sym = targetVara ? targetVara.sym : 3.0;
+        f.height = stageMeters.h;
+        f.tilt = 35;
+      } else if (f.mountType === 'piso') {
+        f.height = 0.2;
+        f.tilt = 70; // apuntando hacia arriba
+      } else if (f.mountType === 'calle') {
         f.height = 1.8;
-      } else if (f.dir === 'piso') {
-        f.height = 0.2; // Razante de piso
-      } else if (f.dir === 'cenital') {
-        f.height = stageMeters.h - 0.5; // colgado de vara
-      } else {
-        f.height = f.dir === 'contra' ? 5.5 : 5.0;
+        f.sxm = 0; // Izquierda
+        f.tilt = 45;
       }
-      
       renderFixturePanel();
       draw();
       triggerAutosave();
     });
   });
+  
+  list.querySelectorAll('[data-vara-assign]').forEach(select => {
+    select.addEventListener('change', e => {
+      const f = fixtures.find(f => f.id === parseInt(e.target.dataset.varaAssign));
+      f.varaId = parseInt(e.target.value);
+      const targetVara = varas.find(v => v.id === f.varaId);
+      if (targetVara) {
+        f.sym = targetVara.sym;
+      }
+      draw();
+      triggerAutosave();
+    });
+  });
+  
+  list.querySelectorAll('[data-vara-pos-range]').forEach(range => {
+    range.addEventListener('input', e => {
+      const f = fixtures.find(f => f.id === parseInt(e.target.dataset.varaPosRange));
+      f.sxm = parseFloat(e.target.value);
+      range.nextElementSibling.innerText = `${f.sxm.toFixed(1)}m`;
+      draw();
+      triggerAutosave();
+    });
+  });
+  
+  list.querySelectorAll('[data-side-select]').forEach(select => {
+    select.addEventListener('change', e => {
+      const f = fixtures.find(f => f.id === parseInt(e.target.dataset.sideSelect));
+      f.sxm = e.target.value === 'izq' ? 0 : stageMeters.w;
+      draw();
+      triggerAutosave();
+    });
+  });
+  
+  list.querySelectorAll('[data-calle-depth-range]').forEach(range => {
+    range.addEventListener('input', e => {
+      const f = fixtures.find(f => f.id === parseInt(e.target.dataset.calleDepthRange));
+      f.sym = parseFloat(e.target.value);
+      range.nextElementSibling.innerText = `${f.sym.toFixed(1)}m`;
+      draw();
+      triggerAutosave();
+    });
+  });
+  
+  list.querySelectorAll('[data-calle-height-range]').forEach(range => {
+    range.addEventListener('input', e => {
+      const f = fixtures.find(f => f.id === parseInt(e.target.dataset.calleHeightRange));
+      f.height = parseFloat(e.target.value);
+      range.nextElementSibling.innerText = `${f.height.toFixed(1)}m`;
+      draw();
+      triggerAutosave();
+    });
+  });
+  
+  list.querySelectorAll('[data-piso-x-range]').forEach(range => {
+    range.addEventListener('input', e => {
+      const f = fixtures.find(f => f.id === parseInt(e.target.dataset.pisoXRange));
+      f.sxm = parseFloat(e.target.value);
+      range.nextElementSibling.innerText = `${f.sxm.toFixed(1)}m`;
+      draw();
+      triggerAutosave();
+    });
+  });
+  
+  list.querySelectorAll('[data-piso-y-range]').forEach(range => {
+    range.addEventListener('input', e => {
+      const f = fixtures.find(f => f.id === parseInt(e.target.dataset.pisoYRange));
+      f.sym = parseFloat(e.target.value);
+      range.nextElementSibling.innerText = `${f.sym.toFixed(1)}m`;
+      draw();
+      triggerAutosave();
+    });
+  });
 
+  list.querySelectorAll('[data-pan-range]').forEach(range => {
+    range.addEventListener('input', e => {
+      const f = fixtures.find(f => f.id === parseInt(e.target.dataset.panRange));
+      f.pan = parseInt(e.target.value);
+      range.nextElementSibling.innerText = `${f.pan}°`;
+      draw();
+      triggerAutosave();
+    });
+  });
+
+  list.querySelectorAll('[data-tilt-range]').forEach(range => {
+    range.addEventListener('input', e => {
+      const f = fixtures.find(f => f.id === parseInt(e.target.dataset.tiltRange));
+      f.tilt = parseInt(e.target.value);
+      range.nextElementSibling.innerText = `${f.tilt}°`;
+      draw();
+      triggerAutosave();
+    });
+  });
+  
   list.querySelectorAll('[data-color-picker]').forEach(picker => {
     picker.addEventListener('input', e => {
       const f = fixtures.find(f => f.id === parseInt(e.target.dataset.colorPicker));
       f.color = e.target.value;
-      
-      // Actualizar el color de glow en tiempo real en la tarjeta
       picker.closest('.fixture-card').style.setProperty('--glow-color', f.color);
       draw();
       triggerAutosave();
@@ -1263,7 +1650,6 @@ function renderFixturePanel() {
         f.gelId = gel.id;
         f.gelCode = gel.code;
         f.color = gel.hex;
-        
         select.closest('.fixture-card').style.setProperty('--glow-color', f.color);
         draw();
         triggerAutosave();
@@ -1385,27 +1771,7 @@ function project3D(x, y, z) {
 
 // Devuelve el punto físico target (X, Y, Z) al que apunta la luz en 3D
 function getPerspFixtureTarget(f) {
-  let tx = f.sxm;
-  let ty = f.sym;
-  let tz = 0; // Suelo por defecto
-  
-  if (f.dir === 'frente') {
-    ty = Math.max(0, f.sym - 1.5); // Apunta hacia el fondo (upstage)
-  } else if (f.dir === 'contra') {
-    ty = Math.min(stageMeters.d, f.sym + 1.5); // Apunta hacia adelante (downstage)
-  } else if (f.dir === 'calle-izq') {
-    tx = Math.min(stageMeters.w, f.sxm + 2.5); // Apunta hacia la derecha
-    tz = f.height; // mantiene altura constante
-  } else if (f.dir === 'calle-der') {
-    tx = Math.max(0, f.sxm - 2.5); // Apunta hacia la izquierda
-    tz = f.height;
-  } else if (f.dir === 'cenital') {
-    tz = 0; // Cenital apunta directo al suelo
-  } else if (f.dir === 'piso') {
-    tz = stageMeters.h; // Apunta directo al techo
-  }
-  
-  return { x: tx, y: ty, z: tz };
+  return getFixtureTarget3D(f);
 }
 
 function drawPerspStage() {
@@ -1537,9 +1903,8 @@ function drawPerspBeam(f) {
   const target = getPerspFixtureTarget(f);
   
   // Radio del haz en el target
-  const rad = (f.dir === 'piso')
-    ? (stageMeters.h - f.height) * Math.tan(f.beamAngle * Math.PI / 180)
-    : f.height * Math.tan(f.beamAngle * Math.PI / 180);
+  const distZ = Math.abs(f.height - target.z);
+  const rad = distZ * Math.tan(f.beamAngle * Math.PI / 180);
     
   const { r, g, b } = hexToRgb(f.color);
   const alpha = f.intensity / 100;
@@ -1555,12 +1920,12 @@ function drawPerspBeam(f) {
     let pz = target.z;
     
     // Distorsión del haz según la dirección del proyector
-    if (isCalle(f)) {
+    if (f.mountType === 'calle') {
       // Las calles proyectan en el plano YZ (altura/profundidad)
       py = target.y + rad * Math.cos(angle);
       pz = target.z + rad * Math.sin(angle);
     } else {
-      // Frente, contra y cenital proyectan en el plano XY (suelo)
+      // Frente, contra, cenital y piso proyectan en el plano XY (suelo/techo)
       px = target.x + rad * Math.cos(angle);
       py = target.y + rad * Math.sin(angle);
     }
@@ -1629,7 +1994,8 @@ function drawPerspFixtureBody(f) {
   ctx.fillStyle = isSelected ? '#ffffff' : 'rgba(255,255,255,0.45)';
   ctx.font = `${isSelected ? '600' : 'normal'} ${7.5 * scale}px Inter`;
   ctx.textAlign = 'center';
-  ctx.fillText(`${dirLabel[f.dir][0]}${f.id}`, pos.x, pos.y - 8 * scale);
+  const label = f.mountType === 'vara' ? 'V' : f.mountType === 'calle' ? 'C' : 'P';
+  ctx.fillText(`${label}${f.id}`, pos.x, pos.y - 8 * scale);
 }
 
 function drawPerspObject(o) {
@@ -1711,4 +2077,72 @@ function drawPerspView() {
   ctx.font = '500 9px Inter';
   ctx.textAlign = 'center';
   ctx.fillText('Edita posiciones en vista de Planta o Perfil; esta vista es de previsualización 3D', W / 2, H - 15);
+}
+
+// ---------- RENDERIZADO DEL PANEL DE VARAS ----------
+function renderVarasPanel() {
+  const container = document.getElementById('varas-list-container');
+  if (!container) return;
+  container.innerHTML = '';
+  
+  varas.forEach((v, index) => {
+    const row = document.createElement('div');
+    row.className = 'range-group';
+    row.style.marginBottom = '12px';
+    row.style.flexDirection = 'column';
+    row.style.alignItems = 'stretch';
+    row.innerHTML = `
+      <div style="display:flex; justify-content:space-between; width:100%; align-items:center; margin-bottom:4px;">
+        <span style="font-size:11px; font-weight:600; color:var(--text-light);">${v.name}</span>
+        ${v.isFrontal ? '' : `<button type="button" class="btn-delete-vara" data-index="${index}" style="background:none; border:none; color:var(--ink-dim); font-size:14px; cursor:pointer;" title="Eliminar Vara">&times;</button>`}
+      </div>
+      <div style="display:flex; align-items:center; gap:8px; width:100%;">
+        <input type="range" min="0.1" max="${stageMeters.d - 0.1}" step="0.1" value="${v.sym}" data-vara-slider="${index}" style="flex:1;">
+        <span style="font-size:10px; min-width:30px; text-align:right; color:var(--ink-dim);">${v.sym.toFixed(1)}m</span>
+      </div>
+    `;
+    container.appendChild(row);
+  });
+  
+  // Eventos de sliders de varas
+  container.querySelectorAll('[data-vara-slider]').forEach(slider => {
+    slider.addEventListener('input', e => {
+      const idx = parseInt(e.target.dataset.varaSlider);
+      const val = parseFloat(e.target.value);
+      varas[idx].sym = val;
+      
+      // Sincronizar profundidad de focos acoplados a esta vara
+      fixtures.forEach(f => {
+        if (f.mountType === 'vara' && f.varaId === varas[idx].id) {
+          f.sym = val;
+        }
+      });
+      
+      draw();
+      triggerAutosave();
+    });
+  });
+  
+  // Evento de eliminación de vara
+  container.querySelectorAll('.btn-delete-vara').forEach(btn => {
+    btn.addEventListener('click', e => {
+      const idx = parseInt(e.target.dataset.index);
+      const deletedVara = varas[idx];
+      
+      // Desacoplar luces de la vara eliminada cambiándolas a modo Piso
+      fixtures.forEach(f => {
+        if (f.mountType === 'vara' && f.varaId === deletedVara.id) {
+          f.mountType = 'piso';
+          f.height = 0.2;
+          f.tilt = 70;
+        }
+      });
+      
+      varas.splice(idx, 1);
+      renderVarasPanel();
+      renderFixturePanel();
+      draw();
+      triggerAutosave();
+    });
+  });
 }
