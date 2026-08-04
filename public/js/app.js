@@ -370,6 +370,69 @@ function hexToRgb(hex) {
   return { r: 255, g: 179, b: 71 };
 }
 
+function getDazzleFactor(f) {
+  if (!f || f.intensity <= 0) return 0;
+  
+  const panRad = (f.pan || 0) * Math.PI / 180;
+  const tiltRad = (f.tilt || 0) * Math.PI / 180;
+  
+  // dy > 0 points downstage (towards audience/camera)
+  const dy = -Math.cos(panRad) * Math.sin(tiltRad);
+  
+  if (dy <= 0) return 0;
+  
+  return dy * (f.intensity / 100);
+}
+
+function snapAndMoveFixture(f, rxm, rym) {
+  // 1. Encontrar la vara más cercana a rym (profundidad)
+  let closestVara = null;
+  let minVaraDist = Infinity;
+  varas.forEach(v => {
+    const dist = Math.abs(rym - v.sym);
+    if (dist < minVaraDist) {
+      minVaraDist = dist;
+      closestVara = v;
+    }
+  });
+
+  // 2. Comprobar si está muy cerca de los laterales (calles)
+  const distToLeftEdge = rxm;
+  const distToRightEdge = stageMeters.w - rxm;
+  const isNearLeftCalle = distToLeftEdge < 0.5;
+  const isNearRightCalle = distToRightEdge < 0.5;
+
+  if (isNearLeftCalle || isNearRightCalle) {
+    // Acomodar en Calle Lateral (Truss)
+    f.mountType = 'calle';
+    f.dir = isNearLeftCalle ? 'calle-izq' : 'calle-der';
+    f.sxm = isNearLeftCalle ? 0 : stageMeters.w;
+    f.sym = Math.max(0.1, Math.min(stageMeters.d - 0.1, rym));
+    if (f.height > stageMeters.h || f.height === 0.2) {
+      f.height = stageMeters.h - 1.5; // colgar a altura razonable
+    }
+  } else if (closestVara && minVaraDist < 0.5) {
+    // Acomodar en Vara LX
+    f.mountType = 'vara';
+    f.varaId = closestVara.id;
+    f.sym = closestVara.sym;
+    f.sxm = Math.max(0.1, Math.min(stageMeters.w - 0.1, rxm));
+    f.height = stageMeters.h; // Colgado
+    if (f.dir === 'cenital') {
+      f.dir = closestVara.isFrontal ? 'contra' : 'frente';
+    }
+  } else {
+    // Acomodar en Piso
+    f.mountType = 'piso';
+    f.sxm = Math.max(0.1, Math.min(stageMeters.w - 0.1, rxm));
+    f.sym = Math.max(0.1, Math.min(stageMeters.d - 0.1, rym));
+    f.height = 0.2; // de suelo
+    if (f.dir !== 'cenital' && f.dir !== 'frente') {
+      f.dir = 'cenital'; // apuntando al techo
+    }
+  }
+}
+
 function escapeHTML(str) {
   if (!str) return '';
   return String(str)
@@ -650,6 +713,25 @@ function drawElevFixtureBody(f) {
   ctx.beginPath();
   ctx.arc(0, 4 * scale, 5 * scale, 0, Math.PI, false);
   ctx.fill();
+  
+  const dazzle = getDazzleFactor(f);
+  if (dazzle > 0.05) {
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+    const { r, g, b } = hexToRgb(f.color);
+    const glowRadius = 38 * scale * dazzle;
+    const flareGrad = ctx.createRadialGradient(0, 4 * scale, 1 * scale, 0, 4 * scale, glowRadius);
+    flareGrad.addColorStop(0, `rgba(255, 255, 255, ${dazzle * 0.95})`);
+    flareGrad.addColorStop(0.2, `rgba(${r}, ${g}, ${b}, ${dazzle * 0.7})`);
+    flareGrad.addColorStop(0.5, `rgba(${r}, ${g}, ${b}, ${dazzle * 0.25})`);
+    flareGrad.addColorStop(1, 'rgba(0,0,0,0)');
+    
+    ctx.fillStyle = flareGrad;
+    ctx.beginPath();
+    ctx.arc(0, 4 * scale, glowRadius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
   
   ctx.restore();
   
@@ -1139,7 +1221,7 @@ canvas.addEventListener('pointerdown', e => {
       p = project3D(f.sxm, f.sym, f.height);
     }
     
-    if (Math.hypot(p.x - mx, p.y - my) < 14) {
+    if (Math.hypot(p.x - mx, p.y - my) < 20) {
       dragTarget = { kind: 'fixture', id: f.id };
       selectedFixtureId = f.id;
       dragOffset = { x: p.x - mx, y: p.y - my };
@@ -1216,50 +1298,10 @@ canvas.addEventListener('pointermove', e => {
     const f = fixtures.find(f => f.id === dragTarget.id);
     if (currentView === 'plan') {
       const m = planMeters(mx + dragOffset.x, my + dragOffset.y);
-      if (f.mountType === 'vara') {
-        f.sxm = Math.max(0.1, Math.min(stageMeters.w - 0.1, m.sxm));
-        const targetVara = varas.find(v => v.id === f.varaId);
-        if (targetVara) f.sym = targetVara.sym;
-      } else if (f.mountType === 'calle') {
-        f.sym = Math.max(0.1, Math.min(stageMeters.d - 0.1, m.sym));
-        f.sxm = f.sxm < stageMeters.w / 2 ? 0 : stageMeters.w;
-      } else {
-        f.sxm = Math.max(0.1, Math.min(stageMeters.w - 0.1, m.sxm));
-        f.sym = Math.max(0.1, Math.min(stageMeters.d - 0.1, m.sym));
-      }
+      snapAndMoveFixture(f, m.sxm, m.sym);
     } else if (currentView === 'persp') {
-      if (f.mountType === 'vara') {
-        const un = unproject3D(mx + dragOffset.x, my + dragOffset.y, stageMeters.h);
-        f.sxm = Math.max(0.1, Math.min(stageMeters.w - 0.1, un.x));
-        const targetVara = varas.find(v => v.id === f.varaId);
-        if (targetVara) f.sym = targetVara.sym;
-      } else if (f.mountType === 'calle') {
-        const xLock = f.sxm < stageMeters.w / 2 ? 0 : stageMeters.w;
-        const rx = xLock - stageMeters.w / 2;
-        const cx = W / 2;
-        const baseScale = (W - 140) / stageMeters.w;
-        const denom = rx * baseScale;
-        const backScale = 0.55;
-        let scale = 0.7;
-        if (Math.abs(denom) > 0.001) {
-          scale = (mx + dragOffset.x - cx) / denom;
-        }
-        scale = Math.max(backScale, Math.min(1.2, scale));
-        const t = (scale - backScale) / (1.0 - backScale);
-        f.sym = Math.max(0.1, Math.min(stageMeters.d - 0.1, t * stageMeters.d));
-        
-        const cy = H / 2 + 10;
-        const floorYBack = cy - 50;
-        const floorYFront = cy + 100;
-        const floorY = floorYBack + (floorYFront - floorYBack) * t;
-        const heightScale = (H - 180) / stageMeters.h;
-        f.height = (floorY - (my + dragOffset.y)) / (heightScale * scale);
-        f.height = Math.max(0.5, Math.min(stageMeters.h, f.height));
-      } else { // piso
-        const un = unproject3D(mx + dragOffset.x, my + dragOffset.y, 0.2);
-        f.sxm = Math.max(0.1, Math.min(stageMeters.w - 0.1, un.x));
-        f.sym = Math.max(0.1, Math.min(stageMeters.d - 0.1, un.y));
-      }
+      const un = unproject3D(mx + dragOffset.x, my + dragOffset.y, f.height || 0.2);
+      snapAndMoveFixture(f, un.x, un.y);
     } else {
       const er = elevRect();
       const centerX = er.x + (stageMeters.w / 2) * er.scaleX;
@@ -1878,13 +1920,13 @@ function renderFixturePanel() {
         
         <div class="range-group">
           <label>Giro (Pan)</label>
-          <input type="range" min="0" max="360" step="5" value="${Math.round(f.pan || 0)}" data-pan-range="${f.id}">
+          <input type="range" min="0" max="360" step="1" value="${Math.round(f.pan || 0)}" data-pan-range="${f.id}">
           <span class="range-value">${Math.round(f.pan || 0)}°</span>
         </div>
         
         <div class="range-group">
           <label>Pivote (Tilt)</label>
-          <input type="range" min="0" max="360" step="5" value="${Math.round(f.tilt || 0)}" data-tilt-range="${f.id}">
+          <input type="range" min="0" max="360" step="1" value="${Math.round(f.tilt || 0)}" data-tilt-range="${f.id}">
           <span class="range-value">${Math.round(f.tilt || 0)}°</span>
         </div>
         
@@ -2488,6 +2530,25 @@ function drawPerspFixtureBody(f) {
   ctx.beginPath();
   ctx.arc(0, 0, 3 * scale, 0, Math.PI * 2);
   ctx.fill();
+  
+  const dazzle = getDazzleFactor(f);
+  if (dazzle > 0.05) {
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+    const { r, g, b } = hexToRgb(f.color);
+    const glowRadius = 38 * scale * dazzle;
+    const flareGrad = ctx.createRadialGradient(0, 0, 1 * scale, 0, 0, glowRadius);
+    flareGrad.addColorStop(0, `rgba(255, 255, 255, ${dazzle * 0.95})`);
+    flareGrad.addColorStop(0.2, `rgba(${r}, ${g}, ${b}, ${dazzle * 0.7})`);
+    flareGrad.addColorStop(0.5, `rgba(${r}, ${g}, ${b}, ${dazzle * 0.25})`);
+    flareGrad.addColorStop(1, 'rgba(0,0,0,0)');
+    
+    ctx.fillStyle = flareGrad;
+    ctx.beginPath();
+    ctx.arc(0, 0, glowRadius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
   
   ctx.restore();
   
